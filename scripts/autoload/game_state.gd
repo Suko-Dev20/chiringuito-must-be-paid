@@ -85,6 +85,38 @@ func get_current_bill() -> Dictionary:
 	var idx: int = mini(current_bill_index, bills.size() - 1)
 	return bills[idx]
 
+func get_effective_exchange_rate(code: String) -> float:
+	var bonus_mult: float = 1.0 + (upgrades["exchange_rate_boost"] * 0.15)
+	return snappedf(base_exchange_rates.get(code, 1.0) * bonus_mult, 0.01)
+
+func get_pending_foreign_eur_value() -> float:
+	var total: float = 0.0
+	for code in ["USD", "GBP", "PEN"]:
+		total += currencies.get(code, 0.0) * get_effective_exchange_rate(code)
+	return snappedf(total, 0.1)
+
+func is_bill_due_today() -> bool:
+	return current_day % days_per_bill == 0
+
+func pay_current_bill() -> bool:
+	var bill: Dictionary = get_current_bill()
+	var cost: float = bill["amount"]
+	if currencies["EUR"] < cost:
+		return false
+	currencies["EUR"] = snappedf(currencies["EUR"] - cost, 0.1)
+	current_bill_index += 1
+	currencies_updated.emit()
+	return true
+
+func reset_run() -> void:
+	current_day = 1
+	current_bill_index = 0
+	for code in currencies.keys():
+		currencies[code] = 0.0
+	for upg in upgrades.keys():
+		upgrades[upg] = 0
+	currencies_updated.emit()
+
 func add_currency(code: String, amount: float) -> void:
 	if not currencies.has(code):
 		currencies[code] = 0.0
