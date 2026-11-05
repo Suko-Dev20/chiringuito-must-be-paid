@@ -1,7 +1,7 @@
 extends Node2D
 ## Escena Entre Rondas ("El Paseo Marítimo"):
 ## 1. Caseta de Cambio de Divisas (USD, GBP, PEN -> EUR)
-## 2. Árbol de Habilidades Interactivo (4 Ramas + Subrama Críticos)
+## 2. Árbol de Habilidades Interactivo (4 Ramas + Kiosco de Helados completo)
 ## 3. El Ticket del Chiringuito (Cobro obligatorio cada 3 días o Fin de Veraneo)
 
 var bill_paid_today: bool = false
@@ -34,24 +34,21 @@ func _ready() -> void:
 		status_color = Color.ORANGE_RED
 	else:
 		var days_left: int = GameState.days_per_bill - (GameState.current_day % GameState.days_per_bill)
-		status_message = "🏖️ Paseo Marítimo — Compra mejoras en el Árbol de Habilidades. Faltan %d día(s) para la cuenta." % days_left
+		status_message = "🏖️ Paseo Marítimo — Compra mejoras o Helados en el Kiosco. Faltan %d día(s) para la cuenta." % days_left
 		status_color = Color.AQUAMARINE
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		var mpos: Vector2 = event.position
-		# 1. Pestañas de las 4 ramas del árbol
 		for i in range(tab_rects.size()):
 			if tab_rects[i].has_point(mpos):
 				selected_branch = i
 				queue_redraw()
 				return
-		# 2. Nodos de mejora de la rama activa
 		for card in upgrade_card_rects:
 			if card["rect"].has_point(mpos):
 				_on_upgrade_clicked(card["id"])
 				return
-		# 3. Botones de Caseta de Cambio y Chiringuito
 		if btn_exchange_rect.has_point(mpos):
 			_on_exchange_pressed()
 		elif btn_pay_bill_rect.has_point(mpos) and GameState.is_bill_due_today() and not bill_paid_today:
@@ -67,7 +64,7 @@ func _on_upgrade_clicked(id: String) -> void:
 		return
 	var cost: float = GameState.get_upgrade_cost(id)
 	if GameState.buy_upgrade(id):
-		status_message = "✨ ¡Mejora comprada por %.1f €! Tus estadísticas han subido." % cost
+		status_message = "✨ ¡Mejora comprada por %.1f €! Nevera activa: %s" % [cost, GameState.get_fridge_summary()]
 		status_color = Color.LIME_GREEN
 	else:
 		status_message = "❌ No tienes suficientes Euros (%.1f € requeridos) o ya está al nivel máximo." % cost
@@ -127,7 +124,7 @@ func _draw() -> void:
 	draw_rect(Rect2(0, 0, 1280, 88), Color("#0d1b2a"))
 
 	# Cabecera
-	draw_string(font, Vector2(30, 38), "🌅 FIN DEL DÍA %d — PASEO MARÍTIMO & ÁRBOL DE MEJORAS" % GameState.current_day, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color.WHITE)
+	draw_string(font, Vector2(30, 38), "🌅 FIN DEL DÍA %d — PASEO MARÍTIMO & KIOSCO DE HELADOS" % GameState.current_day, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color.WHITE)
 	draw_string(font, Vector2(30, 68), status_message, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, status_color)
 	draw_string(font, Vector2(960, 50), "💶 CARTERA: %.1f €" % GameState.currencies["EUR"], HORIZONTAL_ALIGNMENT_LEFT, -1, 24, Color.GOLD)
 
@@ -151,6 +148,7 @@ func _draw() -> void:
 	draw_string(font, Vector2(45, 375), "IMPORTE: %.0f €" % bill["amount"], HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color("#d62828"))
 	var due_str: String = "¡VENCE HOY MISMO!" if GameState.is_bill_due_today() else "Vence Día %d (Hoy: Día %d)" % [((GameState.current_bill_index + 1) * GameState.days_per_bill), GameState.current_day]
 	draw_string(font, Vector2(45, 415), due_str, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color("#d62828") if GameState.is_bill_due_today() else Color("#1d3557"))
+	draw_string(font, Vector2(45, 465), "🍦 Nevera: %s (🍀 x%.1f)" % [GameState.get_fridge_summary(), GameState.get_luck_multiplier()], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color("#005f73"))
 
 	# Botones Izquierda
 	var pending_eur: float = GameState.get_pending_foreign_eur_value()
@@ -179,8 +177,8 @@ func _draw() -> void:
 		draw_rect(trect, Color("#2ec4b6") if is_sel else Color("#1b263b"))
 		draw_string(font, trect.position + Vector2(10, 28), branch_titles[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.BLACK if is_sel else Color.WHITE)
 
-	# Nodos de la rama seleccionada
-	var card_y: float = 175.0
+	# Nodos de la rama seleccionada (compactos para que quepan los 7 nodos de la Rama 3)
+	var card_y: float = 170.0
 	for item in GameState.upgrade_catalog:
 		if item["branch"] != selected_branch:
 			continue
@@ -191,7 +189,7 @@ func _draw() -> void:
 		var cost: float = GameState.get_upgrade_cost(id)
 		var can_buy: bool = unlocked and lvl < max_lvl and GameState.currencies["EUR"] >= cost
 
-		var crect := Rect2(410, card_y, 825, 76)
+		var crect := Rect2(410, card_y, 825, 66)
 		upgrade_card_rects.append({"id": id, "rect": crect})
 
 		var bg_col: Color = Color("#1d3557") if unlocked else Color(0.1, 0.1, 0.15, 0.7)
@@ -204,11 +202,11 @@ func _draw() -> void:
 		draw_rect(crect, Color.GOLD if can_buy else Color("#415a77"), false, 2.0)
 
 		var title_str: String = "%s   [Nivel %d / %d]" % [item["title"], lvl, max_lvl]
-		draw_string(font, crect.position + Vector2(18, 28), title_str, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.WHITE if unlocked else Color.GRAY)
-		draw_string(font, crect.position + Vector2(18, 56), item["desc"], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.LIGHT_GRAY)
+		draw_string(font, crect.position + Vector2(18, 25), title_str, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color.WHITE if unlocked else Color.GRAY)
+		draw_string(font, crect.position + Vector2(18, 50), item["desc"], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.LIGHT_GRAY)
 
 		var price_str: String = "✅ MÁXIMO" if lvl >= max_lvl else ("🔒 Req: %s" % item["req"] if not unlocked else "Comprar: %.1f €" % cost)
 		var price_col: Color = Color.LIME_GREEN if lvl >= max_lvl else (Color.GOLD if can_buy else Color.SALMON)
-		draw_string(font, crect.position + Vector2(630, 44), price_str, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, price_col)
+		draw_string(font, crect.position + Vector2(630, 38), price_str, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, price_col)
 
-		card_y += 86.0
+		card_y += 74.0

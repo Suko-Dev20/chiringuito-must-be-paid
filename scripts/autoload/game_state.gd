@@ -46,16 +46,20 @@ var upgrades: Dictionary = {
 	"crab_spawn_rate": 0,
 	"unlock_tractor": 0,
 	"tractor_cooldown": 0,
-	# Rama 3: Helados y Stamina
+	# Rama 3: Kiosco de Helados y Resistencia (Issue #5)
 	"max_stamina": 0,
-	"ice_cream_foot": 0,    # Pie Helado: probabilidad de recuperar stamina
-	"ice_cream_rocket": 0,  # Cohete Tricolor: probabilidad de golpe explosivo
+	"global_luck": 0,       # Multiplicador global de suerte para helados
+	"ice_cream_foot": 0,    # 🦶 Pie Helado: prob. de recuperar stamina al atrapar
+	"ice_cream_rocket": 0,  # 🚀 Cohete Tricolor: prob. de onda expansiva al golpear
+	"ice_cream_vampire": 0, # 🧛 Conde Colmillos: prob. en crítico de curar stamina y x2 monedas
+	"ice_cream_magnum": 0,  # 🍫 Bombón Magnético: prob. cada seg. de auto-recoger moneda x2 valor
+	"ice_cream_shark": 0,   # 🦈 Tiburón Azul: prob. al golpear de reducir -2.5s cooldown del Tractor
 	# Rama 4: Turismo y Divisas
 	"tourist_currencies": 0,
 	"exchange_rate_boost": 0
 }
 
-# Catálogo de mejoras del Árbol de Habilidades (4 Ramas + Subrama Críticos)
+# Catálogo de mejoras del Árbol de Habilidades (4 Ramas + Subrama Críticos + Kiosco Helados)
 var upgrade_catalog: Array[Dictionary] = [
 	# Rama 1: Herramientas y Críticos (branch = 0)
 	{"id": "shovel_damage", "branch": 0, "title": "🏖️ Pala Reforzada", "desc": "+5 Daño base con la pala", "base_cost": 8.0, "cost_mult": 1.5, "max_lvl": 10, "req": ""},
@@ -66,17 +70,21 @@ var upgrade_catalog: Array[Dictionary] = [
 	{"id": "rake_magnet", "branch": 0, "title": "🧹 Rastrillo Imantado", "desc": "+22 px de radio para recoger monedas al mover el ratón", "base_cost": 10.0, "cost_mult": 1.5, "max_lvl": 6, "req": ""},
 
 	# Rama 2: Playa y Tractor (branch = 1)
-	{"id": "crab_spawn_rate", "branch": 1, "title": "🦀 Cebo Playero", "desc": "Aparecen más cangrejos y más rápido en la orilla", "base_cost": 10.0, "cost_mult": 1.5, "max_lvl": 8, "req": ""},
-	{"id": "unlock_tractor", "branch": 1, "title": "🚜 Tractor Limpia-Playas", "desc": "Desbloquea el Tractor [ESPACIO] y aumenta su velocidad", "base_cost": 25.0, "cost_mult": 1.8, "max_lvl": 5, "req": "crab_spawn_rate"},
+	{"id": "crab_spawn_rate", "branch": 1, "title": "🦀 Cebo Playero", "desc": "Aparecen más bichos marinos y más rápido en la orilla", "base_cost": 10.0, "cost_mult": 1.5, "max_lvl": 8, "req": ""},
+	{"id": "unlock_tractor", "branch": 1, "title": "🚜 Tractor Limpia-Playas", "desc": "Mejora el Tractor [ESPACIO] y su velocidad de barrido", "base_cost": 25.0, "cost_mult": 1.8, "max_lvl": 5, "req": "crab_spawn_rate"},
 	{"id": "tractor_cooldown", "branch": 1, "title": "⛽ Motor Turbo Tractor", "desc": "-1.8s al tiempo de recarga del Tractor", "base_cost": 30.0, "cost_mult": 1.7, "max_lvl": 5, "req": "unlock_tractor"},
 
 	# Rama 3: Kiosco de Helados y Resistencia (branch = 2)
 	{"id": "max_stamina", "branch": 2, "title": "⛱️ Sombrilla y Crema", "desc": "+25 Stamina máxima para aguantar más al sol", "base_cost": 10.0, "cost_mult": 1.45, "max_lvl": 10, "req": ""},
-	{"id": "ice_cream_foot", "branch": 2, "title": "🦶 Helado: Pie Helado", "desc": "+12% prob. por suerte de recuperar +6 Stamina al atrapar bicho", "base_cost": 16.0, "cost_mult": 1.65, "max_lvl": 5, "req": "max_stamina"},
-	{"id": "ice_cream_rocket", "branch": 2, "title": "🚀 Helado: Cohete Tricolor", "desc": "+10% prob. por suerte de que un golpe lance una onda expansiva", "base_cost": 24.0, "cost_mult": 1.75, "max_lvl": 5, "req": "ice_cream_foot"},
+	{"id": "global_luck", "branch": 2, "title": "🍀 Pulsera de la Suerte", "desc": "+20% a la probabilidad de activación de TODOS tus Helados", "base_cost": 14.0, "cost_mult": 1.6, "max_lvl": 6, "req": "max_stamina"},
+	{"id": "ice_cream_foot", "branch": 2, "title": "🦶 Helado: Pie Helado", "desc": "Prob. al atrapar bicho de refrescarte (+7 Stamina)", "base_cost": 15.0, "cost_mult": 1.6, "max_lvl": 5, "req": "max_stamina"},
+	{"id": "ice_cream_rocket", "branch": 2, "title": "🚀 Helado: Cohete Tricolor", "desc": "Prob. al golpear de lanzar onda expansiva (+60% radio)", "base_cost": 22.0, "cost_mult": 1.7, "max_lvl": 5, "req": "ice_cream_foot"},
+	{"id": "ice_cream_vampire", "branch": 2, "title": "🧛 Helado: Conde Colmillos", "desc": "Prob. en Golpe Crítico de robar +5 Stamina y duplicar monedas", "base_cost": 26.0, "cost_mult": 1.75, "max_lvl": 5, "req": "ice_cream_foot"},
+	{"id": "ice_cream_magnum", "branch": 2, "title": "🍫 Helado: Bombón Magnético", "desc": "Prob. cada segundo de absorber una moneda sola con valor DOBLE", "base_cost": 28.0, "cost_mult": 1.75, "max_lvl": 5, "req": "global_luck"},
+	{"id": "ice_cream_shark", "branch": 2, "title": "🦈 Helado: Tiburón Azul", "desc": "Prob. al golpear de reducir -2.5s la recarga del Tractor", "base_cost": 30.0, "cost_mult": 1.75, "max_lvl": 5, "req": "ice_cream_rocket"},
 
 	# Rama 4: Turismo y Divisas (branch = 3)
-	{"id": "tourist_currencies", "branch": 3, "title": "✈️ Playa Internacional", "desc": "Los cangrejos sueltan más monedas por captura y divisas valiosas", "base_cost": 14.0, "cost_mult": 1.6, "max_lvl": 6, "req": ""},
+	{"id": "tourist_currencies", "branch": 3, "title": "✈️ Playa Internacional", "desc": "Los bichos sueltan más monedas por captura y divisas valiosas", "base_cost": 14.0, "cost_mult": 1.6, "max_lvl": 6, "req": ""},
 	{"id": "exchange_rate_boost", "branch": 3, "title": "💱 Caseta Sin Comisiones", "desc": "+15% al valor en Euros (€) al cambiar USD, GBP y PEN", "base_cost": 20.0, "cost_mult": 1.65, "max_lvl": 6, "req": "tourist_currencies"}
 ]
 
@@ -123,7 +131,6 @@ func get_crit_chance() -> float:
 func get_multi_hit_multiplier(targets_hit: int) -> float:
 	if targets_hit <= 1 or upgrades["multi_hit_bonus"] == 0:
 		return 1.0
-	# Bonificación cuando golpeas a varios cangrejos juntos
 	return 1.0 + (targets_hit - 1) * (0.25 * upgrades["multi_hit_bonus"])
 
 func get_rake_radius() -> float:
@@ -132,8 +139,39 @@ func get_rake_radius() -> float:
 func get_max_stamina() -> float:
 	return 100.0 + (upgrades["max_stamina"] * 25.0)
 
+func get_luck_multiplier() -> float:
+	return 1.0 + (upgrades["global_luck"] * 0.20)
+
 func get_foot_ice_cream_chance() -> float:
-	return upgrades["ice_cream_foot"] * 0.12
+	return (0.10 + upgrades["ice_cream_foot"] * 0.10) * get_luck_multiplier()
+
+func get_rocket_ice_cream_chance() -> float:
+	return (upgrades["ice_cream_rocket"] * 0.10) * get_luck_multiplier()
+
+func get_vampire_ice_cream_chance() -> float:
+	return (upgrades["ice_cream_vampire"] * 0.18) * get_luck_multiplier()
+
+func get_magnum_ice_cream_chance() -> float:
+	return (upgrades["ice_cream_magnum"] * 0.16) * get_luck_multiplier()
+
+func get_shark_ice_cream_chance() -> float:
+	return (upgrades["ice_cream_shark"] * 0.12) * get_luck_multiplier()
+
+func get_fridge_summary() -> String:
+	var icons: Array[String] = []
+	if upgrades["ice_cream_foot"] > 0:
+		icons.append("🦶x%d" % upgrades["ice_cream_foot"])
+	if upgrades["ice_cream_rocket"] > 0:
+		icons.append("🚀x%d" % upgrades["ice_cream_rocket"])
+	if upgrades["ice_cream_vampire"] > 0:
+		icons.append("🧛x%d" % upgrades["ice_cream_vampire"])
+	if upgrades["ice_cream_magnum"] > 0:
+		icons.append("🍫x%d" % upgrades["ice_cream_magnum"])
+	if upgrades["ice_cream_shark"] > 0:
+		icons.append("🦈x%d" % upgrades["ice_cream_shark"])
+	if icons.is_empty():
+		return "🦶(Muestra)"
+	return " ".join(icons)
 
 func get_current_bill() -> Dictionary:
 	var idx: int = mini(current_bill_index, bills.size() - 1)
