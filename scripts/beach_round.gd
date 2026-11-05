@@ -1,6 +1,6 @@
 extends Node2D
 ## Escena principal de la ronda en la playa ("La Orilla")
-## Incluye: Herramientas, Fauna Marina, Olas, Helados, Game Feel, Automatización y Logros (Issue #25).
+## Incluye: Herramientas, Fauna Marina, Olas, Helados, Game Feel, Automatización, Logros y Eventos Playeros (Issue #26).
 
 var current_stamina: float = 100.0
 var max_stamina: float = 100.0
@@ -50,6 +50,15 @@ var surge_spawned_fauna: bool = false
 var current_wave_y: float = 610.0
 var wet_sand_alpha: float = 0.0
 
+# --- Eventos Especiales de Playa en mitad de la ronda (Issue #26) ---
+var next_event_timer: float = 10.5
+var active_event_id: String = ""
+var active_event_title: String = ""
+var active_event_desc: String = ""
+var active_event_color: Color = Color.GOLD
+var active_event_timer: float = 0.0
+var active_event_max_time: float = 8.5
+
 # --- Notificación Toast de Postal / Logro Desbloqueado (Issue #25) ---
 var toast_timer: float = 0.0
 var toast_title: String = ""
@@ -80,6 +89,9 @@ func start_new_round() -> void:
 	surge_progress = 0.0
 	wet_sand_alpha = 0.0
 	magnum_timer = 1.0
+	next_event_timer = randf_range(9.0, 12.5)
+	active_event_id = ""
+	active_event_timer = 0.0
 	nephew_pos = Vector2(640, 360)
 	seagull_pos = Vector2(320, 220)
 	for i in range(4):
@@ -91,6 +103,7 @@ func _process(delta: float) -> void:
 	if toast_timer > 0.0:
 		toast_timer = maxf(0.0, toast_timer - delta)
 	if round_active:
+		_update_special_beach_events(delta)
 		_update_dynamic_waves(delta)
 		_update_spawner(delta)
 		_update_crabs(delta)
@@ -117,6 +130,59 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	if event is InputEventKey and event.pressed and event.keycode == KEY_SPACE:
 		_use_tractor()
+
+# --- Eventos Especiales de Playa en mitad de la ronda (Issue #26) ---
+
+func _update_special_beach_events(delta: float) -> void:
+	if active_event_id != "":
+		active_event_timer -= delta
+		if active_event_timer <= 0.0:
+			_spawn_text(Vector2(520, 185), "✨ Fin del evento: %s" % active_event_title, Color.LIGHT_GRAY)
+			active_event_id = ""
+			next_event_timer = randf_range(12.0, 16.0)
+	else:
+		next_event_timer -= delta
+		if next_event_timer <= 0.0:
+			_trigger_random_beach_event()
+
+func _trigger_random_beach_event() -> void:
+	var events: Array[String] = ["tourist_fever", "clam_invasion", "sea_breeze"]
+	var chosen: String = events.pick_random()
+	active_event_id = chosen
+	GameState.play_sfx("buy", 1.05, 1.25)
+	_add_screen_shake(6.5)
+
+	if chosen == "tourist_fever":
+		active_event_title = "🚌 ¡FIEBRE TURÍSTICA!"
+		active_event_desc = "¡Llegan Pulpos y Langosta Dorada! Todas las monedas valen x1.5"
+		active_event_color = Color.GOLD
+		active_event_max_time = 9.0
+		active_event_timer = 9.0
+		spawn_crab("octopus")
+		spawn_crab("octopus")
+		spawn_crab("lobster")
+		_spawn_particles(Vector2(640, 320), 22, Color.GOLD, 240.0)
+	elif chosen == "clam_invasion":
+		active_event_title = "🐚 ¡BAJAMAR DE COQUINAS!"
+		active_event_desc = "¡Banco de 7 Coquinas en la orilla! Tardarán el doble en enterrarse"
+		active_event_color = Color.AQUA
+		active_event_max_time = 8.5
+		active_event_timer = 8.5
+		for i in range(7):
+			spawn_crab("clam")
+		_spawn_particles(Vector2(640, 440), 22, Color.AQUA, 220.0)
+	elif chosen == "sea_breeze":
+		active_event_title = "🌬️ ¡BRISA MARINA REFRESCANTE!"
+		active_event_desc = "+15 Stamina al instante, -50% coste de Stamina y Suerte de Helados x1.5"
+		active_event_color = Color.SPRING_GREEN
+		active_event_max_time = 8.5
+		active_event_timer = 8.5
+		current_stamina = minf(max_stamina, current_stamina + 15.0)
+		bucket_cooldown = 0.0
+		_spawn_particles(Vector2(640, 280), 22, Color.SPRING_GREEN, 220.0)
+
+func _get_event_luck_bonus() -> float:
+	return 1.5 if active_event_id == "sea_breeze" else 1.0
 
 # --- Automatización Playera: Sobrino, Gaviota y Nasas (Issue #17) ---
 
@@ -264,13 +330,14 @@ func _update_dynamic_waves(delta: float) -> void:
 			surge_active = false
 			tide_timer = tide_interval
 
-# --- Mecánicas de Herramientas y Helados por Suerte (Issue #5 & #8) ---
+# --- Mecánicas de Herramientas y Helados por Suerte (Issue #5, #8 & #26) ---
 
 func _use_shovel(pos: Vector2) -> void:
 	cursor_swing_anim = 1.0
 	GameState.play_sfx("hit", 0.90, 1.15)
 	var radius: float = GameState.get_shovel_radius()
-	_perform_strike(pos, radius, GameState.get_shovel_damage(), 4.5, false)
+	var cost: float = 2.25 if active_event_id == "sea_breeze" else 4.5
+	_perform_strike(pos, radius, GameState.get_shovel_damage(), cost, false)
 
 func _use_bucket(pos: Vector2) -> void:
 	if bucket_cooldown > 0.0:
@@ -282,13 +349,15 @@ func _use_bucket(pos: Vector2) -> void:
 	bucket_cooldown = maxf(0.8, bucket_max_cooldown - (GameState.upgrades["unlock_bucket"] * 0.4))
 	var radius: float = GameState.get_shovel_radius() * (1.9 + GameState.upgrades["unlock_bucket"] * 0.15)
 	var dmg_mult: float = 1.6 + (GameState.upgrades["unlock_bucket"] * 0.35)
-	_perform_strike(pos, radius, GameState.get_shovel_damage() * dmg_mult, 9.0, true)
+	var cost: float = 4.5 if active_event_id == "sea_breeze" else 9.0
+	_perform_strike(pos, radius, GameState.get_shovel_damage() * dmg_mult, cost, true)
 
 func _perform_strike(pos: Vector2, radius: float, base_dmg: float, stamina_cost: float, is_bucket: bool) -> void:
 	current_stamina = maxf(0.0, current_stamina - stamina_cost)
+	var ev_luck: float = _get_event_luck_bonus()
 	
 	var actual_radius: float = radius
-	var rocket_proc: bool = randf() < GameState.get_rocket_ice_cream_chance()
+	var rocket_proc: bool = randf() < (GameState.get_rocket_ice_cream_chance() * ev_luck)
 	if rocket_proc:
 		actual_radius *= 1.6
 		_add_screen_shake(8.0)
@@ -298,7 +367,7 @@ func _perform_strike(pos: Vector2, radius: float, base_dmg: float, stamina_cost:
 	_spawn_shockwave(pos, actual_radius, ring_col)
 	_spawn_particles(pos, 10 if is_bucket else 5, Color("#e9c46a"), 130.0)
 
-	if tractor_cooldown > 0.0 and randf() < GameState.get_shark_ice_cream_chance():
+	if tractor_cooldown > 0.0 and randf() < (GameState.get_shark_ice_cream_chance() * ev_luck):
 		tractor_cooldown = maxf(0.0, tractor_cooldown - 2.5)
 		_spawn_text(pos + Vector2(0, -72), "🦈 ¡TIBURÓN AZUL! -2.5s Tractor", Color.DODGER_BLUE)
 
@@ -316,7 +385,7 @@ func _perform_strike(pos: Vector2, radius: float, base_dmg: float, stamina_cost:
 		_add_screen_shake(6.5)
 
 	var vampire_proc: bool = false
-	if is_crit and not hit_indices.is_empty() and randf() < GameState.get_vampire_ice_cream_chance():
+	if is_crit and not hit_indices.is_empty() and randf() < (GameState.get_vampire_ice_cream_chance() * ev_luck):
 		vampire_proc = true
 		current_stamina = minf(max_stamina, current_stamina + 5.0)
 		_spawn_text(pos + Vector2(0, -90), "🧛 ¡CONDE COLMILLOS! +5 Stamina & Botín x2", Color.CRIMSON)
@@ -376,8 +445,9 @@ func _on_crab_caught(crab: Dictionary, coin_mult: int = 1) -> void:
 		GameState.unlock_achievement("golden_lobster")
 		_spawn_text(crab["pos"] + Vector2(0, -45), "🦞 ¡LANGOSTA DORADA! Botín x3", Color.GOLD)
 
+	var event_val_mult: float = 1.5 if active_event_id == "tourist_fever" else 1.0
 	var drops: int = (randi_range(base_min, base_max) + int(extra_drops / 2.0)) * coin_mult
-	var val_boost: float = (1.0 + (extra_drops * 0.25)) * kind_val_mult
+	var val_boost: float = (1.0 + (extra_drops * 0.25)) * kind_val_mult * event_val_mult
 	for i in range(drops):
 		var currency_options: Array[String] = ["EUR", "USD", "GBP", "PEN"]
 		var chosen_code: String = currency_options.pick_random()
@@ -388,7 +458,7 @@ func _on_crab_caught(crab: Dictionary, coin_mult: int = 1) -> void:
 			"pop": 1.0
 		})
 
-	if randf() < GameState.get_foot_ice_cream_chance():
+	if randf() < (GameState.get_foot_ice_cream_chance() * _get_event_luck_bonus()):
 		current_stamina = minf(max_stamina, current_stamina + 7.0)
 		_spawn_text(crab["pos"] + Vector2(0, -40), "🦶 ¡Pie Helado! +7 Stamina", Color.AQUAMARINE)
 
@@ -398,7 +468,7 @@ func _update_magnum_ice_cream(delta: float) -> void:
 	magnum_timer -= delta
 	if magnum_timer <= 0.0:
 		magnum_timer = 1.0
-		if randf() < GameState.get_magnum_ice_cream_chance():
+		if randf() < (GameState.get_magnum_ice_cream_chance() * _get_event_luck_bonus()):
 			var idx: int = randi() % coins.size()
 			var c: Dictionary = coins[idx]
 			c["value"] *= 2.0
@@ -452,12 +522,12 @@ func _collect_coin(c: Dictionary) -> void:
 	GameState.add_currency(c["code"], snappedf(c["value"], 0.5))
 	_spawn_text(c["pos"], "+%.1f %s" % [c["value"], c["code"]], Color.GREEN_YELLOW)
 
-# --- Spawner y Comportamientos de Fauna Marina (Issue #3 & #17) ---
+# --- Spawner y Comportamientos de Fauna Marina (Issue #3, #17 & #26) ---
 
 func _update_spawner(delta: float) -> void:
 	spawn_timer -= delta
 	var interval: float = maxf(0.35, 1.35 - (GameState.upgrades["crab_spawn_rate"] * 0.14))
-	if spawn_timer <= 0.0 and crabs.size() < 20:
+	if spawn_timer <= 0.0 and crabs.size() < 24:
 		spawn_crab()
 		spawn_timer = interval
 
@@ -550,7 +620,8 @@ func _update_crabs(delta: float) -> void:
 			c["hit_flash"] = maxf(0.0, c["hit_flash"] - delta)
 
 		if kind == "clam":
-			c["bury_timer"] -= delta * speed_mult
+			var bury_factor: float = 0.5 if active_event_id == "clam_invasion" else 1.0
+			c["bury_timer"] -= delta * speed_mult * bury_factor
 			if c["bury_timer"] <= 0.0:
 				_spawn_text(c["pos"], "🐚 ¡Se enterró!", Color.LIGHT_SKY_BLUE)
 				crabs.remove_at(i)
@@ -587,7 +658,7 @@ func _on_next_day_pressed() -> void:
 	GameState.save_game()
 	get_tree().change_scene_to_file("res://scenes/main/between_days.tscn")
 
-# --- Renderizado Visual con Arte 2D Estilizado y Efectos ("Juice" + Automatización + Logros) ---
+# --- Renderizado Visual con Arte 2D Estilizado y Efectos ("Juice" + Automatización + Eventos) ---
 
 func _draw() -> void:
 	var font: Font = ThemeDB.fallback_font
@@ -720,12 +791,22 @@ func _draw() -> void:
 		GameState.currencies["EUR"], GameState.currencies["USD"], GameState.currencies["GBP"], GameState.currencies["PEN"]
 	]
 	draw_string(font, Vector2(440, 34), c_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color.GOLD)
-	var fridge_text: String = "🍦 Nevera: %s  |  🍀 Suerte: x%.1f  |  🏅 %d/%d" % [GameState.get_fridge_summary(), GameState.get_luck_multiplier(), GameState.get_unlocked_achievements_count(), GameState.achievement_catalog.size()]
+	var fridge_text: String = "🍦 Nevera: %s  |  🍀 Suerte: x%.1f  |  🏅 %d/%d" % [GameState.get_fridge_summary(), GameState.get_luck_multiplier() * _get_event_luck_bonus(), GameState.get_unlocked_achievements_count(), GameState.achievement_catalog.size()]
 	draw_string(font, Vector2(440, 68), fridge_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.AQUAMARINE)
 
 	var bill: Dictionary = GameState.get_current_bill()
 	draw_string(font, Vector2(910, 36), "🧾 CHIRINGUITO (Día %d/%d):" % [GameState.current_day, GameState.days_per_bill], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.WHITE)
 	draw_string(font, Vector2(910, 64), "%s -> %.0f €" % [bill["title"], bill["amount"]], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.SALMON)
+
+	# 8b. Banner de Evento Especial de Playa Activo (Issue #26)
+	if active_event_id != "":
+		var ev_rect := Rect2(350, 102, 580, 64)
+		draw_rect(ev_rect, Color(0.06, 0.11, 0.18, 0.94))
+		draw_rect(ev_rect, active_event_color, false, 2.5)
+		draw_string(font, ev_rect.position + Vector2(16, 24), "%s (%.1fs)" % [active_event_title, active_event_timer], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, active_event_color)
+		draw_string(font, ev_rect.position + Vector2(16, 46), active_event_desc, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.WHITE)
+		var ev_ratio: float = clampf(active_event_timer / active_event_max_time, 0.0, 1.0)
+		draw_rect(Rect2(ev_rect.position.x + 16, ev_rect.position.y + 54, (ev_rect.size.x - 32) * ev_ratio, 5), active_event_color)
 
 	# 9. Textos flotantes de daño / combos / helados
 	for ft in floating_texts:
@@ -739,7 +820,8 @@ func _draw() -> void:
 
 	# 11. Banner Toast de Postal / Logro Desbloqueado (Issue #25)
 	if toast_timer > 0.0:
-		var t_rect := Rect2(380, 108, 520, 74)
+		var toast_y: float = 174.0 if active_event_id != "" else 108.0
+		var t_rect := Rect2(380, toast_y, 520, 74)
 		draw_rect(t_rect, Color(0.09, 0.14, 0.22, 0.96))
 		draw_rect(t_rect, Color.GOLD, false, 3.0)
 		draw_string(font, t_rect.position + Vector2(18, 28), "🏅 ¡POSTAL DESBLOQUEADA! (%s)  +1 🐚" % toast_title, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color.GOLD)
