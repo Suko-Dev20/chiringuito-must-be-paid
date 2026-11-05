@@ -1,10 +1,11 @@
 extends Node
 ## Estado global del juego (Autoload: GameState)
-## Incluye Store Global, Guardado/Carga, Audio Procedural, Mercado Dinámico y Opciones de PC/Steam (Issue #20).
+## Incluye Store Global, Guardado/Carga, Audio Procedural, Mercado Dinámico, Opciones y Logros (Issue #25).
 
 signal currencies_updated
 signal stamina_changed(current: float, maximum: float)
 signal day_changed(current_day: int, bill_due_day: int)
+signal achievement_unlocked(title: String, desc: String)
 
 const SAVE_PATH: String = "user://savegame.json"
 
@@ -63,6 +64,20 @@ var prestige_catalog: Array[Dictionary] = [
 	{"id": "starting_euros", "title": "💶 Paga de los Abuelos", "desc": "Empiezas cada nuevo veraneo con +15 € en la cartera", "base_cost": 1, "cost_step": 1, "max_lvl": 10},
 	{"id": "permanent_damage", "title": "💪 Brazo de Socorrista", "desc": "+25% Multiplicador de Daño PERMANENTE con Pala y Cubo", "base_cost": 2, "cost_step": 1, "max_lvl": 8},
 	{"id": "waiter_discount", "title": "🍹 Amigo del Camarero", "desc": "-10% de descuento PERMANENTE en todas las cuentas del Chiringuito", "base_cost": 2, "cost_step": 2, "max_lvl": 5}
+]
+
+# --- Sistema de Logros: Postales de Veraneo (Issue #25) ---
+var unlocked_achievements: Dictionary = {}
+
+var achievement_catalog: Array[Dictionary] = [
+	{"id": "first_catch", "title": "🦀 ¡Primer Cacho!", "desc": "Atrapa tu primer bicho marino en la orilla."},
+	{"id": "combo_master", "title": "💥 ¡Golpe Maestro!", "desc": "Consigue un Combo x3 o superior en un solo golpe."},
+	{"id": "octopus_hunter", "title": "🐙 Pulpo a la Gallega", "desc": "Atrapa a un Pulpo Turista en la playa."},
+	{"id": "golden_lobster", "title": "🦞 El Dorado del Mar", "desc": "Atrapa una escurridiza Langosta Dorada antes de que escape."},
+	{"id": "wall_beach_wolf", "title": "📈 Lobo de Wall Beach", "desc": "Vende una divisa extranjera cuando esté en fuerte ALZA (+20% o más)."},
+	{"id": "first_bill_paid", "title": "🍹 Cliente de Confianza", "desc": "Paga tu primera comanda del Chiringuito a tiempo."},
+	{"id": "ice_cream_lover", "title": "🍦 Fiebre del Helado", "desc": "Ten al menos 3 tipos distintos de Helados activos en tu Nevera."},
+	{"id": "beach_automation", "title": "🤖 Vacaciones de Verdad", "desc": "Desbloquea al Sobrino, la Gaviota y la Nasa en la misma partida."}
 ]
 
 # --- Niveles del Árbol de Habilidades (Por Run) ---
@@ -136,6 +151,35 @@ func _unhandled_input(event: InputEvent) -> void:
 				save_game()
 				get_tree().change_scene_to_file("res://scenes/main/main_menu.tscn")
 
+# --- Sistema de Logros: Postales de Veraneo (Issue #25) ---
+
+func unlock_achievement(id: String) -> bool:
+	if unlocked_achievements.get(id, false):
+		return false
+	for item in achievement_catalog:
+		if item["id"] == id:
+			unlocked_achievements[id] = true
+			golden_shells += 1 # +1 Concha Dorada de recompensa por cada postal
+			play_sfx("crit", 1.12, 1.32)
+			save_game()
+			achievement_unlocked.emit(item["title"], item["desc"])
+			return true
+	return false
+
+func get_unlocked_achievements_count() -> int:
+	return unlocked_achievements.size()
+
+func _check_upgrade_achievements() -> void:
+	var ice_types: int = 0
+	for k in ["ice_cream_foot", "ice_cream_rocket", "ice_cream_vampire", "ice_cream_magnum", "ice_cream_shark"]:
+		if upgrades.get(k, 0) > 0:
+			ice_types += 1
+	if ice_types >= 3:
+		unlock_achievement("ice_cream_lover")
+
+	if upgrades.get("auto_nephew", 0) > 0 and upgrades.get("auto_seagull", 0) > 0 and upgrades.get("crab_trap", 0) > 0:
+		unlock_achievement("beach_automation")
+
 # --- Opciones de Volumen y Pantalla Completa (Issue #20) ---
 
 func cycle_volume() -> void:
@@ -191,6 +235,8 @@ func exchange_single_currency_to_eur(code: String) -> float:
 	var gained: float = snappedf(amount * rate, 0.1)
 	currencies[code] = 0.0
 	currencies["EUR"] += gained
+	if market_multipliers.get(code, 1.0) >= 1.20:
+		unlock_achievement("wall_beach_wolf")
 	currencies_updated.emit()
 	play_sfx("coin", 0.92, 1.18)
 	save_game()
@@ -258,7 +304,8 @@ func save_game() -> void:
 		"market_multipliers": market_multipliers,
 		"upgrades": upgrades,
 		"golden_shells": golden_shells,
-		"prestige_upgrades": prestige_upgrades
+		"prestige_upgrades": prestige_upgrades,
+		"unlocked_achievements": unlocked_achievements
 	}
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file:
@@ -305,12 +352,16 @@ func load_game() -> bool:
 			if data["prestige_upgrades"].has(k):
 				prestige_upgrades[k] = int(data["prestige_upgrades"][k])
 
+	if data.has("unlocked_achievements") and typeof(data["unlocked_achievements"]) == TYPE_DICTIONARY:
+		unlocked_achievements = data["unlocked_achievements"].duplicate()
+
 	return true
 
 func delete_save_and_reset_all() -> void:
 	if FileAccess.file_exists(SAVE_PATH):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
 	golden_shells = 0
+	unlocked_achievements.clear()
 	for k in prestige_upgrades.keys():
 		prestige_upgrades[k] = 0
 	reset_run()
@@ -342,6 +393,7 @@ func buy_upgrade(id: String) -> bool:
 				return false
 			currencies["EUR"] = snappedf(currencies["EUR"] - cost, 0.1)
 			upgrades[id] = lvl + 1
+			_check_upgrade_achievements()
 			currencies_updated.emit()
 			play_sfx("buy")
 			save_game()
@@ -448,7 +500,6 @@ func get_current_bill() -> Dictionary:
 			"title": raw_bill["title"],
 			"amount": snappedf(raw_bill["amount"] * discount, 1.0)
 		}
-	# Modo Veraneo Infinito tras superar la 4ª comanda
 	var extra_cycles: int = current_bill_index - bills.size() + 1
 	var endless_amount: float = 3000.0 * pow(2.4, extra_cycles)
 	return {
@@ -478,9 +529,10 @@ func pay_current_bill() -> bool:
 	currencies["EUR"] = snappedf(currencies["EUR"] - cost, 0.1)
 	current_bill_index += 1
 	if current_bill_index == bills.size():
-		golden_shells += 5 # Gran premio por superar la Paella del Cuñado
+		golden_shells += 5
 	else:
 		golden_shells += 1
+	unlock_achievement("first_bill_paid")
 	currencies_updated.emit()
 	play_sfx("buy", 1.05, 1.25)
 	save_game()
@@ -509,6 +561,8 @@ func exchange_all_to_eur() -> float:
 	for code in ["USD", "GBP", "PEN"]:
 		var amount: float = currencies.get(code, 0.0)
 		if amount > 0.0:
+			if market_multipliers.get(code, 1.0) >= 1.20:
+				unlock_achievement("wall_beach_wolf")
 			gained_eur += amount * get_effective_exchange_rate(code)
 			currencies[code] = 0.0
 	currencies["EUR"] += snappedf(gained_eur, 0.1)

@@ -2,7 +2,7 @@ extends Node2D
 ## Escena Entre Rondas ("El Paseo Marítimo"):
 ## 1. Caseta de Cambio con Mercado Dinámico (ALZA / BAJA) y venta individual por divisa (Issue #18)
 ## 2. Árbol de Habilidades Visual (Grafo 2D de Nodos conectados por líneas con Pan/Arrastre y Tooltips - Issue #19)
-## 3. Tienda Permanente de Prestigio y El Ticket del Chiringuito
+## 3. Tienda Permanente de Prestigio, El Ticket del Chiringuito y Notificación de Postales (Issue #25)
 
 var bill_paid_today: bool = false
 var bankruptcy_state: bool = false
@@ -11,6 +11,11 @@ var status_color: Color = Color.GOLD
 
 # 0 = Grafo Visual de Nodos (Issue #19), 1 = Tienda Permanente de Prestigio
 var view_mode: int = 0
+
+# Notificación Toast de Postal Desbloqueada (Issue #25)
+var toast_timer: float = 0.0
+var toast_title: String = ""
+var toast_desc: String = ""
 
 # Pan / Arrastre del Grafo Visual
 var pan_offset := Vector2(35, -15)
@@ -66,6 +71,7 @@ var node_graph_coords: Dictionary = {
 }
 
 func _ready() -> void:
+	GameState.achievement_unlocked.connect(_on_achievement_unlocked)
 	GameState.save_game()
 	bill_paid_today = not GameState.is_bill_due_today()
 	bankruptcy_state = false
@@ -76,7 +82,18 @@ func _ready() -> void:
 		status_message = "🕸️ Explora el Árbol Visual de Nodos (arrastra con el ratón y haz clic en un nodo para mejorarlo)."
 		status_color = Color.AQUAMARINE
 
-func _process(_delta: float) -> void:
+func _on_achievement_unlocked(title: String, desc: String) -> void:
+	toast_title = title
+	toast_desc = desc
+	toast_timer = 4.0
+	queue_redraw()
+
+func _process(delta: float) -> void:
+	if toast_timer > 0.0:
+		toast_timer = maxf(0.0, toast_timer - delta)
+		if toast_timer == 0.0:
+			queue_redraw()
+
 	if view_mode == 0:
 		var mpos: Vector2 = get_viewport().get_mouse_position()
 		var new_hover: String = ""
@@ -268,7 +285,7 @@ func _draw() -> void:
 	# Cabecera
 	draw_string(font, Vector2(30, 38), "🌅 FIN DEL DÍA %d — PASEO MARÍTIMO & ÁRBOL VISUAL DE NODOS" % GameState.current_day, HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color.WHITE)
 	draw_string(font, Vector2(30, 68), status_message, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, status_color)
-	draw_string(font, Vector2(790, 50), "💶 %.1f €   |   🐚 %d Conchas Doradas" % [GameState.currencies["EUR"], GameState.golden_shells], HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color.GOLD)
+	draw_string(font, Vector2(735, 50), "💶 %.1f €  |  🐚 %d Conchas  |  🏅 %d/%d Postales" % [GameState.currencies["EUR"], GameState.golden_shells, GameState.get_unlocked_achievements_count(), GameState.achievement_catalog.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, 19, Color.GOLD)
 
 	# --- COLUMNA IZQUIERDA: CASETA DE CAMBIO CON MERCADO DINÁMICO ---
 	draw_rect(Rect2(20, 105, 350, 600), Color("#0d1b2a"))
@@ -333,6 +350,7 @@ func _draw() -> void:
 
 	if view_mode == 1:
 		_draw_prestige_shop(font)
+		_draw_toast_banner(font)
 		return
 
 	draw_rect(btn_center_graph_rect, Color("#264653"))
@@ -348,7 +366,6 @@ func _draw() -> void:
 		item_by_id[id] = item
 		var rel: Vector2 = node_graph_coords.get(id, Vector2.ZERO)
 		var sp: Vector2 = hub_pos + rel
-		# Mantener dentro del área visible del lienzo
 		sp.x = clampf(sp.x, 425.0, 1225.0)
 		sp.y = clampf(sp.y, 185.0, 585.0)
 		graph_node_Screen_positions[id] = sp
@@ -395,7 +412,6 @@ func _draw() -> void:
 		var border_col: Color = Color.WHITE if is_hovered else (Color.GOLD if can_buy else (b_col if unlocked else Color("#33415c")))
 		draw_arc(npos, node_r, 0, TAU, 28, border_col, 3.2 if (can_buy or is_hovered) else 2.0)
 
-		# Icono y nivel dentro del nodo
 		var icon_str: String = item["title"].split(" ")[0]
 		draw_string(font, npos + Vector2(-10, -2), icon_str, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.WHITE if unlocked else Color.DARK_GRAY)
 		draw_string(font, npos + Vector2(-15, 16), "%d/%d" % [lvl, max_lvl], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.GOLD if lvl > 0 else Color.LIGHT_GRAY)
@@ -418,6 +434,16 @@ func _draw() -> void:
 	else:
 		draw_string(font, tip_rect.position + Vector2(18, 32), "💡 Pasa el ratón sobre cualquier nodo del árbol para ver sus detalles y haz clic izquierdo para comprarlo.", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.LIGHT_GRAY)
 		draw_string(font, tip_rect.position + Vector2(18, 58), "🎨 Colores de Rama:  🔴 Herramientas/Críticos   |   🟢 Playa/Tractor/Auto   |   🟣 Helados/Suerte   |   🟡 Turismo/Divisas", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.AQUAMARINE)
+
+	_draw_toast_banner(font)
+
+func _draw_toast_banner(font: Font) -> void:
+	if toast_timer > 0.0:
+		var t_rect := Rect2(380, 18, 520, 68)
+		draw_rect(t_rect, Color(0.09, 0.14, 0.22, 0.98))
+		draw_rect(t_rect, Color.GOLD, false, 3.0)
+		draw_string(font, t_rect.position + Vector2(16, 26), "🏅 ¡POSTAL DESBLOQUEADA! (%s)  +1 🐚" % toast_title, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.GOLD)
+		draw_string(font, t_rect.position + Vector2(16, 50), toast_desc, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.WHITE)
 
 func _draw_prestige_shop(font: Font) -> void:
 	draw_string(font, Vector2(410, 190), "🐚 TIENDA DE VERANEO PERMANENTE (Guardado automático en user://savegame.json):", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.GOLD)

@@ -1,6 +1,6 @@
 extends Node2D
 ## Escena principal de la ronda en la playa ("La Orilla")
-## Incluye: Herramientas, Fauna Marina, Olas, Helados, Game Feel y Automatización Playera (Issue #17).
+## Incluye: Herramientas, Fauna Marina, Olas, Helados, Game Feel, Automatización y Logros (Issue #25).
 
 var current_stamina: float = 100.0
 var max_stamina: float = 100.0
@@ -50,8 +50,20 @@ var surge_spawned_fauna: bool = false
 var current_wave_y: float = 610.0
 var wet_sand_alpha: float = 0.0
 
+# --- Notificación Toast de Postal / Logro Desbloqueado (Issue #25) ---
+var toast_timer: float = 0.0
+var toast_title: String = ""
+var toast_desc: String = ""
+
 func _ready() -> void:
+	GameState.achievement_unlocked.connect(_on_achievement_unlocked)
 	start_new_round()
+
+func _on_achievement_unlocked(title: String, desc: String) -> void:
+	toast_title = title
+	toast_desc = desc
+	toast_timer = 3.8
+	_add_screen_shake(5.5)
 
 func start_new_round() -> void:
 	max_stamina = GameState.get_max_stamina()
@@ -76,6 +88,8 @@ func start_new_round() -> void:
 
 func _process(delta: float) -> void:
 	wave_time += delta
+	if toast_timer > 0.0:
+		toast_timer = maxf(0.0, toast_timer - delta)
 	if round_active:
 		_update_dynamic_waves(delta)
 		_update_spawner(delta)
@@ -142,7 +156,6 @@ func _update_automation_helpers(delta: float) -> void:
 			var priority_idx: int = 0
 			var best_score: float = -99999.0
 			for i in range(coins.size()):
-				# Prioriza monedas más abajo (cerca de la marea) y cercanas
 				var score: float = coins[i]["pos"].y * 1.5 - seagull_pos.distance_to(coins[i]["pos"]) * 0.4
 				if score > best_score:
 					best_score = score
@@ -154,7 +167,6 @@ func _update_automation_helpers(delta: float) -> void:
 				_collect_coin(coins[priority_idx])
 				coins.remove_at(priority_idx)
 		else:
-			# Patrulla suavemente en círculo cuando no hay monedas
 			var patrol_target := Vector2(640.0 + cos(wave_time * 1.5) * 260.0, 260.0 + sin(wave_time * 2.0) * 60.0)
 			seagull_pos = seagull_pos.move_toward(patrol_target, 140.0 * delta)
 
@@ -311,6 +323,8 @@ func _perform_strike(pos: Vector2, radius: float, base_dmg: float, stamina_cost:
 
 	if hit_indices.size() >= 2:
 		_spawn_text(pos + Vector2(0, -35), "¡COMBO x%d!" % hit_indices.size(), Color.CYAN)
+	if hit_indices.size() >= 3:
+		GameState.unlock_achievement("combo_master")
 
 	hit_indices.reverse()
 	for idx in hit_indices:
@@ -337,6 +351,7 @@ func _on_crab_caught(crab: Dictionary, coin_mult: int = 1) -> void:
 	var kind_val_mult: float = 1.0
 	var spread: float = 38.0
 
+	GameState.unlock_achievement("first_catch")
 	_spawn_particles(crab["pos"], 14, Color.GOLD if kind == "lobster" else Color.AQUAMARINE, 210.0)
 
 	if kind == "clam":
@@ -350,6 +365,7 @@ func _on_crab_caught(crab: Dictionary, coin_mult: int = 1) -> void:
 		kind_val_mult = 1.4
 		spread = 68.0
 		_add_screen_shake(7.5)
+		GameState.unlock_achievement("octopus_hunter")
 		_spawn_text(crab["pos"] + Vector2(0, -45), "🐙 ¡EXPLOSIÓN DE DIVISAS TURISTAS!", Color.VIOLET)
 	elif kind == "lobster":
 		base_min = 5
@@ -357,6 +373,7 @@ func _on_crab_caught(crab: Dictionary, coin_mult: int = 1) -> void:
 		kind_val_mult = 3.0
 		spread = 52.0
 		_add_screen_shake(8.0)
+		GameState.unlock_achievement("golden_lobster")
 		_spawn_text(crab["pos"] + Vector2(0, -45), "🦞 ¡LANGOSTA DORADA! Botín x3", Color.GOLD)
 
 	var drops: int = (randi_range(base_min, base_max) + int(extra_drops / 2.0)) * coin_mult
@@ -513,7 +530,6 @@ func _update_crabs(delta: float) -> void:
 		var c: Dictionary = crabs[i]
 		var kind: String = c.get("kind", "crab")
 
-		# Verificar si está atrapado en una Nasa de Cangrejos (Issue #17)
 		var in_trap: bool = false
 		for tpos in active_traps:
 			if c["pos"].distance_to(tpos) <= trap_r + c["radius"]:
@@ -571,7 +587,7 @@ func _on_next_day_pressed() -> void:
 	GameState.save_game()
 	get_tree().change_scene_to_file("res://scenes/main/between_days.tscn")
 
-# --- Renderizado Visual con Arte 2D Estilizado y Efectos ("Juice" + Automatización) ---
+# --- Renderizado Visual con Arte 2D Estilizado y Efectos ("Juice" + Automatización + Logros) ---
 
 func _draw() -> void:
 	var font: Font = ThemeDB.fallback_font
@@ -704,7 +720,7 @@ func _draw() -> void:
 		GameState.currencies["EUR"], GameState.currencies["USD"], GameState.currencies["GBP"], GameState.currencies["PEN"]
 	]
 	draw_string(font, Vector2(440, 34), c_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color.GOLD)
-	var fridge_text: String = "🍦 Nevera: %s  |  🍀 Suerte: x%.1f" % [GameState.get_fridge_summary(), GameState.get_luck_multiplier()]
+	var fridge_text: String = "🍦 Nevera: %s  |  🍀 Suerte: x%.1f  |  🏅 %d/%d" % [GameState.get_fridge_summary(), GameState.get_luck_multiplier(), GameState.get_unlocked_achievements_count(), GameState.achievement_catalog.size()]
 	draw_string(font, Vector2(440, 68), fridge_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.AQUAMARINE)
 
 	var bill: Dictionary = GameState.get_current_bill()
@@ -720,3 +736,11 @@ func _draw() -> void:
 		draw_rect(Rect2(340, 240, 600, 180), Color(0.05, 0.08, 0.12, 0.92))
 		draw_string(font, Vector2(420, 305), "🏖️ ¡DÍA TERMINADO! Te has quedado sin Stamina.", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color.WHITE)
 		draw_string(font, Vector2(400, 355), "Pulsa [ESPACIO] para ir al Paseo Marítimo (Cambio y Chiringuito)", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.GOLD)
+
+	# 11. Banner Toast de Postal / Logro Desbloqueado (Issue #25)
+	if toast_timer > 0.0:
+		var t_rect := Rect2(380, 108, 520, 74)
+		draw_rect(t_rect, Color(0.09, 0.14, 0.22, 0.96))
+		draw_rect(t_rect, Color.GOLD, false, 3.0)
+		draw_string(font, t_rect.position + Vector2(18, 28), "🏅 ¡POSTAL DESBLOQUEADA! (%s)  +1 🐚" % toast_title, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color.GOLD)
+		draw_string(font, t_rect.position + Vector2(18, 56), toast_desc, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.WHITE)

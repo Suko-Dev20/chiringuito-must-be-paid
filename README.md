@@ -63,16 +63,29 @@ Estás de vacaciones en la playa con la familia y la cuenta del **Chiringuito** 
 
 ---
 
-## 4. Milestone 2 — Expansión de Profundidad y Pulido para Steam
+## 4. Milestone 2 — Expansión de Profundidad y Pulido para Steam (✅ Completado)
 
-### Fase 7: Automatización Playera (Ayudantes y Gadgets)
-- [ ] **Issue #17:** Añadir ayudantes autónomos en la playa: **👦 Sobrino Entusiasta** (camina hacia los bichos y los golpea sin gastar Stamina), **🐦 Gaviota Amaestrada** (vuela hacia las monedas sueltas antes de que se las lleve la ola) y **🕸️ Nasa de Cangrejos** (ralentiza un 50% y daña por segundo en área).
+### Fase 7: Automatización Playera (Ayudantes y Gadgets) (✅ Completado)
+- [x] **Issue #17:** Añadir ayudantes autónomos en la playa: **👦 Sobrino Entusiasta** (camina hacia los bichos y los golpea sin gastar Stamina), **🐦 Gaviota Amaestrada** (vuela hacia las monedas sueltas antes de que se las lleve la ola) y **🕸️ Nasa de Cangrejos** (ralentiza un 50% y daña por segundo en área).
 
-### Fase 8: Mercado de Divisas Dinámico (Bolsa Turística)
-- [ ] **Issue #18:** Fluctuación diaria de tasas de cambio (`📈 ALZA` / `📉 BAJA`) y botones de conversión individual por divisa (`USD`, `GBP`, `PEN`) para especular con el mejor día de venta.
+### Fase 8: Mercado de Divisas Dinámico (Bolsa Turística) (✅ Completado)
+- [x] **Issue #18:** Fluctuación diaria de tasas de cambio (`📈 ALZA` / `📉 BAJA`) y botones de conversión individual por divisa (`USD`, `GBP`, `PEN`) para especular con el mejor día de venta.
 
-### Fase 9: Árbol de Habilidades Visual (Grafo de Nodos con Pan/Zoom)
-- [ ] **Issue #19:** Transformar la lista de mejoras en un mapa visual de nodos conectados por líneas arrastrable con el ratón (*Pan*) y tooltips interactivos.
+### Fase 9: Árbol de Habilidades Visual (Grafo de Nodos con Pan/Zoom) (✅ Completado)
+- [x] **Issue #19:** Transformar la lista de mejoras en un mapa visual de nodos conectados por líneas arrastrable con el ratón (*Pan*) y tooltips interactivos.
 
-### Fase 10: Menú Principal y Opciones de PC/Steam
-- [ ] **Issue #20:** Escena `main_menu.tscn`, ajustes de Volumen Master y selector de Pantalla Completa (`F11`).
+### Fase 10: Menú Principal y Opciones de PC/Steam (✅ Completado)
+- [x] **Issue #20:** Escena `main_menu.tscn`, ajustes de Volumen Master y selector de Pantalla Completa (`F11`).
+
+---
+
+## 5. Milestone 3 — Postales de Veraneo, Eventos Playeros y Álbum de Colección
+
+### Fase 11: Sistema de Logros ("Postales de Veraneo") y Recompensas
+- [x] **Issue #25:** Catálogo de 8 Postales de Veraneo desbloqueables con notificación *Toast* en tiempo real y recompensa directa de `+1 🐚 Concha Dorada`.
+
+### Fase 12: Eventos Especiales de Playa en mitad de la ronda
+- [ ] **Issue #26:** Eventos sorpresa positivos en mitad de la jornada (*Fiebre Turística*, *Invasión de Coquinas*, *Brisa Marina*).
+
+### Fase 13: Álbum de Postales y Estadísticas Globales
+- [ ] **Issue #27:** Pestaña interactiva de Álbum de Postales y registro histórico de estadísticas en el Paseo Marítimo y Menú Principal.
