@@ -1,6 +1,6 @@
 extends Node
 ## Estado global del juego (Autoload: GameState)
-## Incluye Store Global, Guardado/Carga en user://savegame.json y Sintetizador de Audio con Pitch variable.
+## Incluye Store Global, Guardado/Carga, Audio Procedural y Mercado de Divisas Dinámico (Issue #18).
 
 signal currencies_updated
 signal stamina_changed(current: float, maximum: float)
@@ -24,7 +24,7 @@ var bills: Array[Dictionary] = [
 	{"title": "Paella de Marisco para el Cuñado y Sangría", "amount": 3000.0}
 ]
 
-# --- Divisas de Turistas ---
+# --- Divisas de Turistas y Bolsa Diaria (Issue #18) ---
 var currencies: Dictionary = {
 	"EUR": 0.0,
 	"USD": 0.0,
@@ -36,6 +36,13 @@ var base_exchange_rates: Dictionary = {
 	"USD": 0.85,
 	"GBP": 1.15,
 	"PEN": 0.25
+}
+
+# Multiplicador de mercado del día actual para cada divisa extranjera (0.80 a 1.45)
+var market_multipliers: Dictionary = {
+	"USD": 1.0,
+	"GBP": 1.25,
+	"PEN": 0.90
 }
 
 # --- Prestigio Permanente: Conchas Doradas (Issue #6) ---
@@ -113,7 +120,40 @@ var upgrade_catalog: Array[Dictionary] = [
 
 func _ready() -> void:
 	_init_procedural_audio()
-	load_game()
+	if not load_game():
+		roll_daily_market()
+
+# --- Mercado de Divisas Dinámico (Issue #18) ---
+
+func roll_daily_market() -> void:
+	var codes: Array[String] = ["USD", "GBP", "PEN"]
+	for c in codes:
+		market_multipliers[c] = snappedf(randf_range(0.80, 1.35), 0.05)
+	# Garantizar al menos una divisa en fuerte ALZA cada día (+25% a +45%)
+	var hot_code: String = codes.pick_random()
+	market_multipliers[hot_code] = snappedf(randf_range(1.25, 1.45), 0.05)
+
+func get_market_trend_text(code: String) -> String:
+	var m: float = market_multipliers.get(code, 1.0)
+	var pct: int = int(round((m - 1.0) * 100.0))
+	if pct >= 5:
+		return "📈 +%d%%" % pct
+	elif pct <= -5:
+		return "📉 %d%%" % pct
+	return "➖ 0%"
+
+func exchange_single_currency_to_eur(code: String) -> float:
+	var amount: float = currencies.get(code, 0.0)
+	if amount <= 0.0:
+		return 0.0
+	var rate: float = get_effective_exchange_rate(code)
+	var gained: float = snappedf(amount * rate, 0.1)
+	currencies[code] = 0.0
+	currencies["EUR"] += gained
+	currencies_updated.emit()
+	play_sfx("coin", 0.92, 1.18)
+	save_game()
+	return gained
 
 # --- Sintetizador de Sonidos Procedurales con Variación de Pitch (Issue #8) ---
 
@@ -170,6 +210,7 @@ func save_game() -> void:
 		"current_day": current_day,
 		"current_bill_index": current_bill_index,
 		"currencies": currencies,
+		"market_multipliers": market_multipliers,
 		"upgrades": upgrades,
 		"golden_shells": golden_shells,
 		"prestige_upgrades": prestige_upgrades
@@ -201,6 +242,11 @@ func load_game() -> bool:
 		for k in currencies.keys():
 			if data["currencies"].has(k):
 				currencies[k] = float(data["currencies"][k])
+
+	if data.has("market_multipliers") and typeof(data["market_multipliers"]) == TYPE_DICTIONARY:
+		for k in market_multipliers.keys():
+			if data["market_multipliers"].has(k):
+				market_multipliers[k] = float(data["market_multipliers"][k])
 
 	if data.has("upgrades") and typeof(data["upgrades"]) == TYPE_DICTIONARY:
 		for k in upgrades.keys():
@@ -358,7 +404,8 @@ func get_current_bill() -> Dictionary:
 
 func get_effective_exchange_rate(code: String) -> float:
 	var bonus_mult: float = 1.0 + (upgrades["exchange_rate_boost"] * 0.15)
-	return snappedf(base_exchange_rates.get(code, 1.0) * bonus_mult, 0.01)
+	var market_mult: float = market_multipliers.get(code, 1.0)
+	return snappedf(base_exchange_rates.get(code, 1.0) * bonus_mult * market_mult, 0.01)
 
 func get_pending_foreign_eur_value() -> float:
 	var total: float = 0.0
@@ -390,6 +437,7 @@ func reset_run() -> void:
 	currencies["EUR"] = prestige_upgrades["starting_euros"] * 15.0
 	for upg in upgrades.keys():
 		upgrades[upg] = 0
+	roll_daily_market()
 	currencies_updated.emit()
 	save_game()
 
@@ -400,12 +448,11 @@ func add_currency(code: String, amount: float) -> void:
 	currencies_updated.emit()
 
 func exchange_all_to_eur() -> float:
-	var bonus_mult: float = 1.0 + (upgrades["exchange_rate_boost"] * 0.15)
 	var gained_eur: float = 0.0
 	for code in ["USD", "GBP", "PEN"]:
 		var amount: float = currencies.get(code, 0.0)
 		if amount > 0.0:
-			gained_eur += amount * base_exchange_rates[code] * bonus_mult
+			gained_eur += amount * get_effective_exchange_rate(code)
 			currencies[code] = 0.0
 	currencies["EUR"] += snappedf(gained_eur, 0.1)
 	currencies_updated.emit()

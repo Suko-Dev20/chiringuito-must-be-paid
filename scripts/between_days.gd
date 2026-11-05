@@ -1,6 +1,6 @@
 extends Node2D
 ## Escena Entre Rondas ("El Paseo Marítimo"):
-## 1. Caseta de Cambio de Divisas (USD, GBP, PEN -> EUR)
+## 1. Caseta de Cambio con Mercado Dinámico (ALZA / BAJA) y venta individual por divisa (Issue #18)
 ## 2. Árbol de Habilidades Interactivo (4 Ramas + 5ª Pestaña de Prestigio Permanente)
 ## 3. El Ticket del Chiringuito, Prestigio y Autoguardado (user://savegame.json)
 
@@ -25,6 +25,7 @@ var btn_next_day_rect := Rect2(30, 645, 330, 54)
 var btn_wipe_save_rect := Rect2(955, 625, 280, 44)
 var tab_rects: Array[Rect2] = []
 var upgrade_card_rects: Array[Dictionary] = []
+var single_exchange_rects: Array[Dictionary] = []
 
 func _ready() -> void:
 	GameState.save_game()
@@ -37,7 +38,7 @@ func _ready() -> void:
 		status_color = Color.ORANGE_RED
 	else:
 		var days_left: int = GameState.days_per_bill - (GameState.current_day % GameState.days_per_bill)
-		status_message = "🏖️ Paseo Marítimo (💾 Partida guardada) — Faltan %d día(s) para la cuenta." % days_left
+		status_message = "📈 Bolsa Turística activa — Vende hoy las divisas en ALZA y guarda las que estén en BAJA."
 		status_color = Color.AQUAMARINE
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -47,6 +48,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			if tab_rects[i].has_point(mpos):
 				selected_branch = i
 				queue_redraw()
+				return
+		# Botones individuales de venta por divisa (Issue #18)
+		for sbtn in single_exchange_rects:
+			if sbtn["rect"].has_point(mpos):
+				_on_single_exchange_pressed(sbtn["code"])
 				return
 		if selected_branch == 4 and btn_wipe_save_rect.has_point(mpos):
 			GameState.delete_save_and_reset_all()
@@ -67,6 +73,16 @@ func _unhandled_input(event: InputEvent) -> void:
 			_on_pay_bill_pressed()
 		elif btn_next_day_rect.has_point(mpos):
 			_on_next_action_pressed()
+
+func _on_single_exchange_pressed(code: String) -> void:
+	var gained: float = GameState.exchange_single_currency_to_eur(code)
+	if gained <= 0.0:
+		status_message = "💱 No tienes %s para vender hoy." % code
+		status_color = Color.LIGHT_GRAY
+	else:
+		status_message = "💱 ¡Vendidos tus %s por +%.1f € a la cotización de hoy (%s)!" % [code, gained, GameState.get_market_trend_text(code)]
+		status_color = Color.GREEN_YELLOW
+	queue_redraw()
 
 func _on_upgrade_clicked(id: String) -> void:
 	if not GameState.is_upgrade_unlocked(id):
@@ -100,14 +116,14 @@ func _on_exchange_pressed() -> void:
 		status_color = Color.LIGHT_GRAY
 	else:
 		var gained: float = GameState.exchange_all_to_eur()
-		status_message = "💱 ¡Cambio realizado y guardado! Has recibido +%.1f € en la Caseta." % gained
+		status_message = "💱 ¡Cambio total realizado! Has recibido +%.1f € en la Caseta." % gained
 		status_color = Color.GREEN_YELLOW
 	queue_redraw()
 
 func _on_pay_bill_pressed() -> void:
 	var bill: Dictionary = GameState.get_current_bill()
 	if GameState.currencies["EUR"] < bill["amount"] and GameState.get_pending_foreign_eur_value() > 0.0:
-		status_message = "💡 ¡Cambia primero tus divisas extranjeras a Euros en la Caseta!"
+		status_message = "💡 ¡Vende primero tus divisas extranjeras a Euros en la Caseta!"
 		status_color = Color.GOLD
 		queue_redraw()
 		return
@@ -137,48 +153,62 @@ func _on_next_action_pressed() -> void:
 		return
 
 	GameState.current_day += 1
+	GameState.roll_daily_market()
 	GameState.save_game()
 	get_tree().change_scene_to_file("res://scenes/main/beach_round.tscn")
 
 func _draw() -> void:
 	var font: Font = ThemeDB.fallback_font
 	upgrade_card_rects.clear()
+	single_exchange_rects.clear()
 
 	# Fondo general del Paseo Marítimo
 	draw_rect(Rect2(0, 0, 1280, 720), Color("#1b263b"))
 	draw_rect(Rect2(0, 0, 1280, 88), Color("#0d1b2a"))
 
 	# Cabecera
-	draw_string(font, Vector2(30, 38), "🌅 FIN DEL DÍA %d — PASEO MARÍTIMO & TIENDA DE PRESTIGIO" % GameState.current_day, HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color.WHITE)
+	draw_string(font, Vector2(30, 38), "🌅 FIN DEL DÍA %d — PASEO MARÍTIMO & BOLSA DE DIVISAS" % GameState.current_day, HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color.WHITE)
 	draw_string(font, Vector2(30, 68), status_message, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, status_color)
 	draw_string(font, Vector2(790, 50), "💶 %.1f €   |   🐚 %d Conchas Doradas" % [GameState.currencies["EUR"], GameState.golden_shells], HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color.GOLD)
 
-	# --- COLUMNA IZQUIERDA: CASETA DE CAMBIO + CHIRINGUITO ---
+	# --- COLUMNA IZQUIERDA: CASETA DE CAMBIO CON MERCADO DINÁMICO (Issue #18) ---
 	draw_rect(Rect2(20, 105, 350, 600), Color("#0d1b2a"))
 	draw_rect(Rect2(20, 105, 350, 600), Color("#415a77"), false, 2.0)
 
-	draw_string(font, Vector2(35, 138), "💱 CASETA DE CAMBIO", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.GOLD)
-	var y_ex: float = 172.0
+	draw_string(font, Vector2(30, 134), "💱 BOLSA TURÍSTICA (Cotización Hoy)", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.GOLD)
+	var y_ex: float = 152.0
 	for code in ["USD", "GBP", "PEN"]:
 		var amt: float = GameState.currencies.get(code, 0.0)
 		var rate: float = GameState.get_effective_exchange_rate(code)
-		draw_string(font, Vector2(35, y_ex), "%s: %.1f (x%.2f) -> +%.1f €" % [code, amt, rate, amt * rate], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.WHITE)
-		y_ex += 28.0
+		var eur_val: float = snappedf(amt * rate, 0.1)
+		var mult: float = GameState.market_multipliers.get(code, 1.0)
+		var trend_str: String = GameState.get_market_trend_text(code)
+		var trend_col: Color = Color.LIME_GREEN if mult >= 1.05 else (Color.SALMON if mult <= 0.95 else Color.LIGHT_GRAY)
+
+		draw_rect(Rect2(28, y_ex, 334, 34), Color(1, 1, 1, 0.05))
+		draw_string(font, Vector2(34, y_ex + 22), "%s: %.1f" % [code, amt], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.WHITE)
+		draw_string(font, Vector2(120, y_ex + 22), "%s (%.2f€)" % [trend_str, rate], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, trend_col)
+
+		var srect := Rect2(248, y_ex + 3, 110, 28)
+		single_exchange_rects.append({"code": code, "rect": srect})
+		draw_rect(srect, Color("#2a9d8f") if amt > 0.0 else Color("#2b3a4a"))
+		draw_string(font, srect.position + Vector2(8, 19), "Vender (+%.1f€)" % eur_val, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE if amt > 0.0 else Color.GRAY)
+		y_ex += 39.0
 
 	# Ticket del Chiringuito compacto a la izquierda
 	var bill: Dictionary = GameState.get_current_bill()
-	draw_rect(Rect2(30, 270, 330, 230), Color(0.95, 0.93, 0.85))
-	draw_string(font, Vector2(45, 302), "🧾 CHIRINGUITO — TICKET #%d" % (GameState.current_bill_index + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.BLACK)
-	draw_string(font, Vector2(45, 335), bill["title"], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("#333333"))
-	draw_string(font, Vector2(45, 375), "IMPORTE: %.0f €" % bill["amount"], HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color("#d62828"))
+	draw_rect(Rect2(30, 275, 330, 228), Color(0.95, 0.93, 0.85))
+	draw_string(font, Vector2(45, 305), "🧾 CHIRINGUITO — TICKET #%d" % (GameState.current_bill_index + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.BLACK)
+	draw_string(font, Vector2(45, 336), bill["title"], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("#333333"))
+	draw_string(font, Vector2(45, 376), "IMPORTE: %.0f €" % bill["amount"], HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color("#d62828"))
 	var due_str: String = "¡VENCE HOY MISMO!" if GameState.is_bill_due_today() else "Vence Día %d (Hoy: Día %d)" % [((GameState.current_bill_index + 1) * GameState.days_per_bill), GameState.current_day]
-	draw_string(font, Vector2(45, 415), due_str, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color("#d62828") if GameState.is_bill_due_today() else Color("#1d3557"))
-	draw_string(font, Vector2(45, 465), "🍦 Nevera: %s (🍀 x%.1f)" % [GameState.get_fridge_summary(), GameState.get_luck_multiplier()], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color("#005f73"))
+	draw_string(font, Vector2(45, 416), due_str, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color("#d62828") if GameState.is_bill_due_today() else Color("#1d3557"))
+	draw_string(font, Vector2(45, 466), "🍦 Nevera: %s (🍀 x%.1f)" % [GameState.get_fridge_summary(), GameState.get_luck_multiplier()], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color("#005f73"))
 
 	# Botones Izquierda
 	var pending_eur: float = GameState.get_pending_foreign_eur_value()
 	draw_rect(btn_exchange_rect, Color("#2a9d8f") if pending_eur > 0.0 else Color("#415a77"))
-	draw_string(font, btn_exchange_rect.position + Vector2(20, 31), "💱 CAMBIAR DIVISAS (+%.1f €)" % pending_eur, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.WHITE)
+	draw_string(font, btn_exchange_rect.position + Vector2(20, 31), "💱 VENDER TODAS (+%.1f €)" % pending_eur, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.WHITE)
 
 	if GameState.is_bill_due_today() and not bill_paid_today and not bankruptcy_state:
 		var can_afford: bool = GameState.currencies["EUR"] >= bill["amount"]
@@ -195,7 +225,6 @@ func _draw() -> void:
 	draw_rect(Rect2(385, 105, 875, 600), Color("#0d1b2a"))
 	draw_rect(Rect2(385, 105, 875, 600), Color.GOLD if selected_branch == 4 else Color("#2ec4b6"), false, 2.0)
 
-	# Pestañas (4 Ramas + 5ª Pestaña de Prestigio)
 	for i in range(5):
 		var trect: Rect2 = tab_rects[i]
 		var is_sel: bool = (i == selected_branch)
@@ -228,7 +257,6 @@ func _draw() -> void:
 			draw_string(font, prect.position + Vector2(650, 48), pprice, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.GOLD if pcan_buy else Color.SALMON)
 			card_y += 98.0
 
-		# Botón para borrar partida guardada si se quiere probar desde cero
 		draw_rect(btn_wipe_save_rect, Color("#6a040f"))
 		draw_string(font, btn_wipe_save_rect.position + Vector2(18, 28), "🗑️ Borrar Partida Guardada", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.WHITE)
 		return
