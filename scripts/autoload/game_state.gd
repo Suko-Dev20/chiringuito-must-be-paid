@@ -1,6 +1,6 @@
 extends Node
 ## Estado global del juego (Autoload: GameState)
-## Incluye Store Global, Guardado/Carga, Audio Procedural, Mercado Dinámico, Opciones y Logros (Issue #25).
+## Incluye Store Global, Guardado/Carga, Audio Procedural, Mercado Dinámico, Opciones, Logros y Estadísticas (Issue #25 & #27).
 
 signal currencies_updated
 signal stamina_changed(current: float, maximum: float)
@@ -66,8 +66,16 @@ var prestige_catalog: Array[Dictionary] = [
 	{"id": "waiter_discount", "title": "🍹 Amigo del Camarero", "desc": "-10% de descuento PERMANENTE en todas las cuentas del Chiringuito", "base_cost": 2, "cost_step": 2, "max_lvl": 5}
 ]
 
-# --- Sistema de Logros: Postales de Veraneo (Issue #25) ---
+# --- Sistema de Logros: Postales de Veraneo y Estadísticas Globales (Issue #25 & #27) ---
 var unlocked_achievements: Dictionary = {}
+
+var lifetime_stats: Dictionary = {
+	"total_crabs_caught": 0,
+	"total_eur_earned": 0.0,
+	"total_bills_paid": 0,
+	"max_day_reached": 1,
+	"best_combo": 1
+}
 
 var achievement_catalog: Array[Dictionary] = [
 	{"id": "first_catch", "title": "🦀 ¡Primer Cacho!", "desc": "Atrapa tu primer bicho marino en la orilla."},
@@ -151,7 +159,18 @@ func _unhandled_input(event: InputEvent) -> void:
 				save_game()
 				get_tree().change_scene_to_file("res://scenes/main/main_menu.tscn")
 
-# --- Sistema de Logros: Postales de Veraneo (Issue #25) ---
+# --- Sistema de Logros y Estadísticas Globales (Issue #25 & #27) ---
+
+func record_catch() -> void:
+	lifetime_stats["total_crabs_caught"] = int(lifetime_stats.get("total_crabs_caught", 0)) + 1
+
+func record_combo(combo_size: int) -> void:
+	if combo_size > int(lifetime_stats.get("best_combo", 1)):
+		lifetime_stats["best_combo"] = combo_size
+
+func record_day_reached(day_num: int) -> void:
+	if day_num > int(lifetime_stats.get("max_day_reached", 1)):
+		lifetime_stats["max_day_reached"] = day_num
 
 func unlock_achievement(id: String) -> bool:
 	if unlocked_achievements.get(id, false):
@@ -235,6 +254,7 @@ func exchange_single_currency_to_eur(code: String) -> float:
 	var gained: float = snappedf(amount * rate, 0.1)
 	currencies[code] = 0.0
 	currencies["EUR"] += gained
+	lifetime_stats["total_eur_earned"] = float(lifetime_stats.get("total_eur_earned", 0.0)) + gained
 	if market_multipliers.get(code, 1.0) >= 1.20:
 		unlock_achievement("wall_beach_wolf")
 	currencies_updated.emit()
@@ -292,9 +312,10 @@ func play_sfx(kind: String, min_pitch: float = 0.88, max_pitch: float = 1.16) ->
 # --- Sistema de Guardado y Carga Automática (Issue #7) ---
 
 func has_saved_progress() -> bool:
-	return FileAccess.file_exists(SAVE_PATH) and (current_day > 1 or golden_shells > 0 or currencies["EUR"] > 0.0)
+	return FileAccess.file_exists(SAVE_PATH) and (current_day > 1 or golden_shells > 0 or currencies["EUR"] > 0.0 or unlocked_achievements.size() > 0)
 
 func save_game() -> void:
+	record_day_reached(current_day)
 	var data: Dictionary = {
 		"version": 1,
 		"current_day": current_day,
@@ -305,7 +326,8 @@ func save_game() -> void:
 		"upgrades": upgrades,
 		"golden_shells": golden_shells,
 		"prestige_upgrades": prestige_upgrades,
-		"unlocked_achievements": unlocked_achievements
+		"unlocked_achievements": unlocked_achievements,
+		"lifetime_stats": lifetime_stats
 	}
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file:
@@ -355,6 +377,11 @@ func load_game() -> bool:
 	if data.has("unlocked_achievements") and typeof(data["unlocked_achievements"]) == TYPE_DICTIONARY:
 		unlocked_achievements = data["unlocked_achievements"].duplicate()
 
+	if data.has("lifetime_stats") and typeof(data["lifetime_stats"]) == TYPE_DICTIONARY:
+		for k in lifetime_stats.keys():
+			if data["lifetime_stats"].has(k):
+				lifetime_stats[k] = data["lifetime_stats"][k]
+
 	return true
 
 func delete_save_and_reset_all() -> void:
@@ -362,6 +389,13 @@ func delete_save_and_reset_all() -> void:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
 	golden_shells = 0
 	unlocked_achievements.clear()
+	lifetime_stats = {
+		"total_crabs_caught": 0,
+		"total_eur_earned": 0.0,
+		"total_bills_paid": 0,
+		"max_day_reached": 1,
+		"best_combo": 1
+	}
 	for k in prestige_upgrades.keys():
 		prestige_upgrades[k] = 0
 	reset_run()
@@ -528,6 +562,7 @@ func pay_current_bill() -> bool:
 		return false
 	currencies["EUR"] = snappedf(currencies["EUR"] - cost, 0.1)
 	current_bill_index += 1
+	lifetime_stats["total_bills_paid"] = int(lifetime_stats.get("total_bills_paid", 0)) + 1
 	if current_bill_index == bills.size():
 		golden_shells += 5
 	else:
@@ -554,6 +589,8 @@ func add_currency(code: String, amount: float) -> void:
 	if not currencies.has(code):
 		currencies[code] = 0.0
 	currencies[code] += amount
+	if code == "EUR" and amount > 0.0:
+		lifetime_stats["total_eur_earned"] = float(lifetime_stats.get("total_eur_earned", 0.0)) + amount
 	currencies_updated.emit()
 
 func exchange_all_to_eur() -> float:
@@ -565,7 +602,9 @@ func exchange_all_to_eur() -> float:
 				unlock_achievement("wall_beach_wolf")
 			gained_eur += amount * get_effective_exchange_rate(code)
 			currencies[code] = 0.0
-	currencies["EUR"] += snappedf(gained_eur, 0.1)
+	var rounded_gain: float = snappedf(gained_eur, 0.1)
+	currencies["EUR"] += rounded_gain
+	lifetime_stats["total_eur_earned"] = float(lifetime_stats.get("total_eur_earned", 0.0)) + rounded_gain
 	currencies_updated.emit()
 	play_sfx("coin", 0.9, 1.1)
 	save_game()

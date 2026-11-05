@@ -1,6 +1,6 @@
 extends Node2D
 ## Escena principal de la ronda en la playa ("La Orilla")
-## Incluye: Herramientas, Fauna Marina, Olas, Helados, Game Feel, Automatización, Logros y Eventos Playeros (Issue #26).
+## Incluye: Herramientas, Fauna Marina, Olas, Helados, Game Feel, Automatización, Logros y Eventos Playeros (Issue #26 & #27).
 
 var current_stamina: float = 100.0
 var max_stamina: float = 100.0
@@ -194,7 +194,6 @@ func _get_active_traps() -> Array[Vector2]:
 	return trap_positions.slice(0, count)
 
 func _update_automation_helpers(delta: float) -> void:
-	# 1. 👦 Sobrino con Cubo (persigue al bicho más cercano y da golpes gratis sin gastar Stamina)
 	var nephew_lvl: int = GameState.upgrades["auto_nephew"]
 	if nephew_lvl > 0:
 		nephew_hit_timer = maxf(0.0, nephew_hit_timer - delta)
@@ -215,7 +214,6 @@ func _update_automation_helpers(delta: float) -> void:
 				var auto_dmg: float = GameState.get_shovel_damage() * (0.6 + nephew_lvl * 0.25)
 				_perform_strike(nephew_pos, 48.0, auto_dmg, 0.0, false)
 
-	# 2. 🐦 Gaviota Amaestrada (vuela hacia las monedas sueltas priorizando las cercanas a la ola)
 	var gull_lvl: int = GameState.upgrades["auto_seagull"]
 	if gull_lvl > 0:
 		if not coins.is_empty():
@@ -391,6 +389,7 @@ func _perform_strike(pos: Vector2, radius: float, base_dmg: float, stamina_cost:
 		_spawn_text(pos + Vector2(0, -90), "🧛 ¡CONDE COLMILLOS! +5 Stamina & Botín x2", Color.CRIMSON)
 
 	if hit_indices.size() >= 2:
+		GameState.record_combo(hit_indices.size())
 		_spawn_text(pos + Vector2(0, -35), "¡COMBO x%d!" % hit_indices.size(), Color.CYAN)
 	if hit_indices.size() >= 3:
 		GameState.unlock_achievement("combo_master")
@@ -413,6 +412,7 @@ func _perform_strike(pos: Vector2, radius: float, base_dmg: float, stamina_cost:
 		_spawn_text(Vector2(640, 320), "¡AGOTADO POR EL SOL! Fin del Día", Color.ORANGE_RED)
 
 func _on_crab_caught(crab: Dictionary, coin_mult: int = 1) -> void:
+	GameState.record_catch()
 	var extra_drops: int = GameState.upgrades["tourist_currencies"]
 	var kind: String = crab.get("kind", "crab")
 	var base_min: int = 2
@@ -662,12 +662,10 @@ func _on_next_day_pressed() -> void:
 
 func _draw() -> void:
 	var font: Font = ThemeDB.fallback_font
-	# 1. Arena de la playa + Arena húmeda + Orilla con olas dinámicas
 	draw_rect(Rect2(0, 0, 1280, 720), Color("#f4d58d"))
 	if wet_sand_alpha > 0.0:
 		draw_rect(Rect2(0, 340, 1280, 380), Color(0.76, 0.62, 0.35, wet_sand_alpha * 0.55))
 
-	# 1b. 🕸️ Nasas / Trampas de Cangrejos en la orilla (Issue #17)
 	var trap_lvl: int = GameState.upgrades["crab_trap"]
 	if trap_lvl > 0:
 		var trap_r: float = 65.0 + trap_lvl * 8.0
@@ -684,13 +682,11 @@ func _draw() -> void:
 	draw_line(Vector2(0, current_wave_y), Vector2(1280, current_wave_y), Color.WHITE, 5.0)
 	draw_line(Vector2(0, current_wave_y + 12), Vector2(1280, current_wave_y + 12), Color(1, 1, 1, 0.45), 2.5)
 
-	# 2. Anillos de impacto (Shockwaves)
 	for sw in shockwaves:
 		var c_sw: Color = sw["col"]
 		c_sw.a = clampf(sw["alpha"], 0.0, 1.0)
 		draw_arc(sw["pos"], sw["r"], 0, TAU, 36, c_sw, 3.5)
 
-	# 3. Monedas en la arena (con sombra y animación de salto al caer)
 	for c in coins:
 		var jump_y: float = sin(c.get("pop", 0.0) * PI) * -18.0
 		var cpos: Vector2 = c["pos"] + Vector2(0, jump_y)
@@ -700,7 +696,6 @@ func _draw() -> void:
 		draw_arc(cpos, 11.5, 0, TAU, 16, Color.WHITE, 1.5)
 		draw_string(font, cpos + Vector2(-12, 4), c["code"], HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color.BLACK)
 
-	# 4. Fauna Marina con Sombras, Ojos y Detalles 2D
 	for crab in crabs:
 		var p: Vector2 = crab["pos"]
 		var kind: String = crab.get("kind", "crab")
@@ -750,7 +745,6 @@ func _draw() -> void:
 		draw_rect(Rect2(p.x - bar_w * 0.5, p.y - crab["radius"] - 14, bar_w, 6), Color(0, 0, 0, 0.6))
 		draw_rect(Rect2(p.x - bar_w * 0.5, p.y - crab["radius"] - 14, bar_w * hp_ratio, 6), Color.LIME_GREEN)
 
-	# 4b. Ayudantes Autónomos: 👦 Sobrino con Cubo y 🐦 Gaviota Amaestrada (Issue #17)
 	if GameState.upgrades["auto_nephew"] > 0:
 		draw_circle(nephew_pos + Vector2(0, 10), 16.0, Color(0, 0, 0, 0.25))
 		draw_circle(nephew_pos, 18.0, Color("#3a86ff"))
@@ -762,24 +756,20 @@ func _draw() -> void:
 		draw_arc(seagull_pos, 14.0, 0, TAU, 16, Color("#0077b6"), 2.0)
 		draw_string(font, seagull_pos + Vector2(-28, -18), "🐦 Gaviota", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.BLACK)
 
-	# 5. Partículas 2D de arena, agua y chispas
 	for pt in particles:
 		var pcol: Color = pt["col"]
 		pcol.a = clampf(pt["ttl"] / pt["max_ttl"], 0.0, 1.0)
 		draw_circle(pt["pos"], pt["size"], pcol)
 
-	# 6. Tractor Limpia-Playas
 	if tractor_active:
 		draw_rect(Rect2(tractor_x, 120, 70, 480), Color(0.95, 0.75, 0.1, 0.85))
 		draw_string(font, Vector2(tractor_x + 8, 360), "🚜 TRACTOR", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.BLACK)
 
-	# 7. Círculo del cursor (Pala + Radio del Rastrillo + Animación de golpe)
 	var mpos: Vector2 = get_viewport().get_mouse_position()
 	var swing_scale: float = 1.0 - (cursor_swing_anim * 0.18)
 	draw_arc(mpos, GameState.get_shovel_radius() * swing_scale, 0, TAU, 32, Color(1, 0.2, 0.2, 0.8), 2.8)
 	draw_arc(mpos, GameState.get_rake_radius(), 0, TAU, 32, Color(1, 0.9, 0.2, 0.35), 1.5)
 
-	# 8. HUD Superior (Stamina, Divisas, Nevera de Helados y Ticket del Chiringuito)
 	draw_rect(Rect2(0, 0, 1280, 95), Color(0.08, 0.12, 0.18, 0.92))
 	var stam_ratio: float = clampf(current_stamina / max_stamina, 0.0, 1.0)
 	draw_rect(Rect2(24, 20, 280, 26), Color(0.2, 0.2, 0.2))
@@ -798,7 +788,6 @@ func _draw() -> void:
 	draw_string(font, Vector2(910, 36), "🧾 CHIRINGUITO (Día %d/%d):" % [GameState.current_day, GameState.days_per_bill], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.WHITE)
 	draw_string(font, Vector2(910, 64), "%s -> %.0f €" % [bill["title"], bill["amount"]], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.SALMON)
 
-	# 8b. Banner de Evento Especial de Playa Activo (Issue #26)
 	if active_event_id != "":
 		var ev_rect := Rect2(350, 102, 580, 64)
 		draw_rect(ev_rect, Color(0.06, 0.11, 0.18, 0.94))
@@ -808,17 +797,14 @@ func _draw() -> void:
 		var ev_ratio: float = clampf(active_event_timer / active_event_max_time, 0.0, 1.0)
 		draw_rect(Rect2(ev_rect.position.x + 16, ev_rect.position.y + 54, (ev_rect.size.x - 32) * ev_ratio, 5), active_event_color)
 
-	# 9. Textos flotantes de daño / combos / helados
 	for ft in floating_texts:
 		draw_string(font, ft["pos"], ft["text"], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, ft["color"])
 
-	# 10. Cartel de Fin de Ronda
 	if not round_active:
 		draw_rect(Rect2(340, 240, 600, 180), Color(0.05, 0.08, 0.12, 0.92))
 		draw_string(font, Vector2(420, 305), "🏖️ ¡DÍA TERMINADO! Te has quedado sin Stamina.", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color.WHITE)
 		draw_string(font, Vector2(400, 355), "Pulsa [ESPACIO] para ir al Paseo Marítimo (Cambio y Chiringuito)", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.GOLD)
 
-	# 11. Banner Toast de Postal / Logro Desbloqueado (Issue #25)
 	if toast_timer > 0.0:
 		var toast_y: float = 174.0 if active_event_id != "" else 108.0
 		var t_rect := Rect2(380, toast_y, 520, 74)
