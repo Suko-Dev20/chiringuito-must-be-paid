@@ -55,6 +55,60 @@ var upgrades: Dictionary = {
 	"exchange_rate_boost": 0
 }
 
+# Catálogo de mejoras del Árbol de Habilidades (4 Ramas + Subrama Críticos)
+var upgrade_catalog: Array[Dictionary] = [
+	# Rama 1: Herramientas y Críticos (branch = 0)
+	{"id": "shovel_damage", "branch": 0, "title": "🏖️ Pala Reforzada", "desc": "+5 Daño base con la pala", "base_cost": 8.0, "cost_mult": 1.5, "max_lvl": 10, "req": ""},
+	{"id": "shovel_radius", "branch": 0, "title": "⭕ Pala Ancha", "desc": "+8 px de radio de golpe", "base_cost": 12.0, "cost_mult": 1.6, "max_lvl": 6, "req": "shovel_damage"},
+	{"id": "crit_chance", "branch": 0, "title": "⚡ Filo Playero (Crítico)", "desc": "+5% Probabilidad de Crítico (x2)", "base_cost": 15.0, "cost_mult": 1.6, "max_lvl": 8, "req": "shovel_damage"},
+	{"id": "multi_hit_bonus", "branch": 0, "title": "💥 Golpe en Manada", "desc": "+25% Daño extra por cada cangrejo adicional en el mismo golpe", "base_cost": 22.0, "cost_mult": 1.7, "max_lvl": 5, "req": "crit_chance"},
+	{"id": "unlock_bucket", "branch": 0, "title": "🪣 Cubo Pesado (Clic Der)", "desc": "Desbloquea/mejora el Cubazo en área (+Daño y -Cooldown)", "base_cost": 18.0, "cost_mult": 1.7, "max_lvl": 5, "req": "shovel_radius"},
+	{"id": "rake_magnet", "branch": 0, "title": "🧹 Rastrillo Imantado", "desc": "+22 px de radio para recoger monedas al mover el ratón", "base_cost": 10.0, "cost_mult": 1.5, "max_lvl": 6, "req": ""},
+
+	# Rama 2: Playa y Tractor (branch = 1)
+	{"id": "crab_spawn_rate", "branch": 1, "title": "🦀 Cebo Playero", "desc": "Aparecen más cangrejos y más rápido en la orilla", "base_cost": 10.0, "cost_mult": 1.5, "max_lvl": 8, "req": ""},
+	{"id": "unlock_tractor", "branch": 1, "title": "🚜 Tractor Limpia-Playas", "desc": "Desbloquea el Tractor [ESPACIO] y aumenta su velocidad", "base_cost": 25.0, "cost_mult": 1.8, "max_lvl": 5, "req": "crab_spawn_rate"},
+	{"id": "tractor_cooldown", "branch": 1, "title": "⛽ Motor Turbo Tractor", "desc": "-1.8s al tiempo de recarga del Tractor", "base_cost": 30.0, "cost_mult": 1.7, "max_lvl": 5, "req": "unlock_tractor"},
+
+	# Rama 3: Kiosco de Helados y Resistencia (branch = 2)
+	{"id": "max_stamina", "branch": 2, "title": "⛱️ Sombrilla y Crema", "desc": "+25 Stamina máxima para aguantar más al sol", "base_cost": 10.0, "cost_mult": 1.45, "max_lvl": 10, "req": ""},
+	{"id": "ice_cream_foot", "branch": 2, "title": "🦶 Helado: Pie Helado", "desc": "+12% prob. por suerte de recuperar +6 Stamina al atrapar bicho", "base_cost": 16.0, "cost_mult": 1.65, "max_lvl": 5, "req": "max_stamina"},
+	{"id": "ice_cream_rocket", "branch": 2, "title": "🚀 Helado: Cohete Tricolor", "desc": "+10% prob. por suerte de que un golpe lance una onda expansiva", "base_cost": 24.0, "cost_mult": 1.75, "max_lvl": 5, "req": "ice_cream_foot"},
+
+	# Rama 4: Turismo y Divisas (branch = 3)
+	{"id": "tourist_currencies", "branch": 3, "title": "✈️ Playa Internacional", "desc": "Los cangrejos sueltan más monedas por captura y divisas valiosas", "base_cost": 14.0, "cost_mult": 1.6, "max_lvl": 6, "req": ""},
+	{"id": "exchange_rate_boost", "branch": 3, "title": "💱 Caseta Sin Comisiones", "desc": "+15% al valor en Euros (€) al cambiar USD, GBP y PEN", "base_cost": 20.0, "cost_mult": 1.65, "max_lvl": 6, "req": "tourist_currencies"}
+]
+
+func get_upgrade_cost(id: String) -> float:
+	for item in upgrade_catalog:
+		if item["id"] == id:
+			var lvl: int = upgrades.get(id, 0)
+			return snappedf(item["base_cost"] * pow(item["cost_mult"], lvl), 0.5)
+	return 9999.0
+
+func is_upgrade_unlocked(id: String) -> bool:
+	for item in upgrade_catalog:
+		if item["id"] == id:
+			var req: String = item["req"]
+			return req == "" or upgrades.get(req, 0) > 0
+	return false
+
+func buy_upgrade(id: String) -> bool:
+	for item in upgrade_catalog:
+		if item["id"] == id:
+			var lvl: int = upgrades.get(id, 0)
+			if lvl >= item["max_lvl"] or not is_upgrade_unlocked(id):
+				return false
+			var cost: float = get_upgrade_cost(id)
+			if currencies["EUR"] < cost:
+				return false
+			currencies["EUR"] = snappedf(currencies["EUR"] - cost, 0.1)
+			upgrades[id] = lvl + 1
+			currencies_updated.emit()
+			return true
+	return false
+
 # --- Estadísticas Calculadas Dinámicamente ---
 
 func get_shovel_damage() -> float:

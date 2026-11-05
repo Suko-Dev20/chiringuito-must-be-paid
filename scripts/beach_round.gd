@@ -74,17 +74,25 @@ func _use_bucket(pos: Vector2) -> void:
 	if bucket_cooldown > 0.0:
 		_spawn_text(pos, "¡Cubo recargando!", Color.ORANGE)
 		return
-	bucket_cooldown = bucket_max_cooldown
-	var radius: float = GameState.get_shovel_radius() * 2.1
-	_perform_strike(pos, radius, GameState.get_shovel_damage() * 1.8, 9.0, "¡CUBAZO!")
+	bucket_cooldown = maxf(0.8, bucket_max_cooldown - (GameState.upgrades["unlock_bucket"] * 0.4))
+	var radius: float = GameState.get_shovel_radius() * (1.9 + GameState.upgrades["unlock_bucket"] * 0.15)
+	var dmg_mult: float = 1.6 + (GameState.upgrades["unlock_bucket"] * 0.35)
+	_perform_strike(pos, radius, GameState.get_shovel_damage() * dmg_mult, 9.0, "¡CUBAZO!")
 
 func _perform_strike(pos: Vector2, radius: float, base_dmg: float, stamina_cost: float, _label: String) -> void:
 	current_stamina = maxf(0.0, current_stamina - stamina_cost)
 	
+	# Pasivo por Suerte: "Cohete Tricolor" (onda expansiva gratis con +60% de radio)
+	var actual_radius: float = radius
+	var rocket_proc: bool = randf() < (GameState.upgrades["ice_cream_rocket"] * 0.10)
+	if rocket_proc:
+		actual_radius *= 1.6
+		_spawn_text(pos + Vector2(0, -55), "🚀 ¡COHETE TRICOLOR! Onda Expansiva", Color.DEEP_PINK)
+
 	# Buscar cuántos cangrejos hay dentro del golpe (para la subrama de Multigolpe)
 	var hit_indices: Array[int] = []
 	for i in range(crabs.size()):
-		if crabs[i]["pos"].distance_to(pos) <= radius + crabs[i]["radius"]:
+		if crabs[i]["pos"].distance_to(pos) <= actual_radius + crabs[i]["radius"]:
 			hit_indices.append(i)
 
 	var multi_mult: float = GameState.get_multi_hit_multiplier(hit_indices.size())
@@ -112,15 +120,17 @@ func _perform_strike(pos: Vector2, radius: float, base_dmg: float, stamina_cost:
 		_spawn_text(Vector2(640, 320), "¡AGOTADO POR EL SOL! Fin del Día", Color.ORANGE_RED)
 
 func _on_crab_caught(crab: Dictionary) -> void:
-	# Soltar monedas de turistas en la arena
-	var drops: int = randi_range(2, 4)
+	# Soltar monedas de turistas en la arena (mejorable con "Playa Internacional")
+	var extra_drops: int = GameState.upgrades["tourist_currencies"]
+	var drops: int = randi_range(2, 4) + int(extra_drops / 2.0)
+	var val_boost: float = 1.0 + (extra_drops * 0.25)
 	for i in range(drops):
 		var currency_options: Array[String] = ["EUR", "USD", "GBP", "PEN"]
 		var chosen_code: String = currency_options.pick_random()
 		coins.append({
 			"pos": crab["pos"] + Vector2(randf_range(-35, 35), randf_range(-25, 25)),
 			"code": chosen_code,
-			"value": randf_range(1.0, 3.0)
+			"value": randf_range(1.0, 3.0) * val_boost
 		})
 
 	# Pasivo de Helado por Suerte ("Pie Helado")
@@ -148,7 +158,7 @@ func _use_tractor() -> void:
 		return
 	tractor_active = true
 	tractor_x = -120.0
-	tractor_cooldown = tractor_max_cooldown
+	tractor_cooldown = maxf(3.0, tractor_max_cooldown - (GameState.upgrades["tractor_cooldown"] * 1.8))
 	_spawn_text(Vector2(640, 260), "🚜 ¡TRACTOR LIMPIA-PLAYAS EN MARCHA!", Color.GOLD)
 
 func _update_tractor(delta: float) -> void:
