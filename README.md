@@ -60,3 +60,19 @@ Estás de vacaciones en la playa con la familia y la cuenta del **Chiringuito** 
 
 ### Fase 6: Arte, "Juice" (Game Feel), Audio y Steam (✅ Completado)
 - [x] **Issue #8:** *Game Feel* y Jugosidad: *Screen shake* en críticos y cubazos, partículas de arena/agua, sonidos con variación de *pitch* (`AudioStreamWAV`) y detalles 2D.
+
+---
+
+## 4. Milestone 2 — Expansión de Profundidad y Pulido para Steam
+
+### Fase 7: Automatización Playera (Ayudantes y Gadgets)
+- [ ] **Issue #17:** Añadir ayudantes autónomos en la playa: **👦 Sobrino Entusiasta** (camina hacia los bichos y los golpea sin gastar Stamina), **🐦 Gaviota Amaestrada** (vuela hacia las monedas sueltas antes de que se las lleve la ola) y **🕸️ Nasa de Cangrejos** (ralentiza un 50% y daña por segundo en área).
+
+### Fase 8: Mercado de Divisas Dinámico (Bolsa Turística)
+- [ ] **Issue #18:** Fluctuación diaria de tasas de cambio (`📈 ALZA` / `📉 BAJA`) y botones de conversión individual por divisa (`USD`, `GBP`, `PEN`) para especular con el mejor día de venta.
+
+### Fase 9: Árbol de Habilidades Visual (Grafo de Nodos con Pan/Zoom)
+- [ ] **Issue #19:** Transformar la lista de mejoras en un mapa visual de nodos conectados por líneas arrastrable con el ratón (*Pan*) y tooltips interactivos.
+
+### Fase 10: Menú Principal y Opciones de PC/Steam
+- [ ] **Issue #20:** Escena `main_menu.tscn`, ajustes de Volumen Master y selector de Pantalla Completa (`F11`).

@@ -1,6 +1,6 @@
 extends Node2D
 ## Escena principal de la ronda en la playa ("La Orilla")
-## Incluye: Herramientas, Fauna Marina, Olas Dinámicas, Kiosco de Helados y Game Feel (Juice/SFX/Shake/Partículas).
+## Incluye: Herramientas, Fauna Marina, Olas, Helados, Game Feel y Automatización Playera (Issue #17).
 
 var current_stamina: float = 100.0
 var max_stamina: float = 100.0
@@ -27,6 +27,16 @@ var cursor_swing_anim: float = 0.0
 # Animación del Tractor Limpia-Playas
 var tractor_active: bool = false
 var tractor_x: float = -150.0
+
+# --- Automatización Playera (Issue #17: Sobrino, Gaviota y Nasas) ---
+var nephew_pos := Vector2(640, 360)
+var nephew_hit_timer: float = 0.0
+var seagull_pos := Vector2(320, 220)
+var trap_positions: Array[Vector2] = [
+	Vector2(640, 480),
+	Vector2(360, 460),
+	Vector2(920, 460)
+]
 
 var spawn_timer: float = 0.0
 var wave_time: float = 0.0
@@ -58,6 +68,8 @@ func start_new_round() -> void:
 	surge_progress = 0.0
 	wet_sand_alpha = 0.0
 	magnum_timer = 1.0
+	nephew_pos = Vector2(640, 360)
+	seagull_pos = Vector2(320, 220)
 	for i in range(4):
 		spawn_crab("crab")
 	spawn_crab("clam")
@@ -68,6 +80,7 @@ func _process(delta: float) -> void:
 		_update_dynamic_waves(delta)
 		_update_spawner(delta)
 		_update_crabs(delta)
+		_update_automation_helpers(delta)
 		_update_coins_and_rake(delta)
 		_update_magnum_ice_cream(delta)
 		_update_cooldowns(delta)
@@ -90,6 +103,60 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	if event is InputEventKey and event.pressed and event.keycode == KEY_SPACE:
 		_use_tractor()
+
+# --- Automatización Playera: Sobrino, Gaviota y Nasas (Issue #17) ---
+
+func _get_active_traps() -> Array[Vector2]:
+	var lvl: int = GameState.upgrades["crab_trap"]
+	if lvl <= 0:
+		return []
+	var count: int = mini(3, 1 + int(lvl / 2.0))
+	return trap_positions.slice(0, count)
+
+func _update_automation_helpers(delta: float) -> void:
+	# 1. 👦 Sobrino con Cubo (persigue al bicho más cercano y da golpes gratis sin gastar Stamina)
+	var nephew_lvl: int = GameState.upgrades["auto_nephew"]
+	if nephew_lvl > 0:
+		nephew_hit_timer = maxf(0.0, nephew_hit_timer - delta)
+		if not crabs.is_empty():
+			var nearest_idx: int = 0
+			var best_dist: float = 99999.0
+			for i in range(crabs.size()):
+				var d: float = nephew_pos.distance_to(crabs[i]["pos"])
+				if d < best_dist:
+					best_dist = d
+					nearest_idx = i
+			var target_pos: Vector2 = crabs[nearest_idx]["pos"]
+			var move_spd: float = 165.0 + (nephew_lvl * 30.0)
+			nephew_pos = nephew_pos.move_toward(target_pos, move_spd * delta)
+			if best_dist <= 42.0 and nephew_hit_timer <= 0.0:
+				nephew_hit_timer = maxf(0.45, 1.55 - (nephew_lvl * 0.22))
+				GameState.play_sfx("hit", 1.05, 1.28)
+				var auto_dmg: float = GameState.get_shovel_damage() * (0.6 + nephew_lvl * 0.25)
+				_perform_strike(nephew_pos, 48.0, auto_dmg, 0.0, false)
+
+	# 2. 🐦 Gaviota Amaestrada (vuela hacia las monedas sueltas priorizando las cercanas a la ola)
+	var gull_lvl: int = GameState.upgrades["auto_seagull"]
+	if gull_lvl > 0:
+		if not coins.is_empty():
+			var priority_idx: int = 0
+			var best_score: float = -99999.0
+			for i in range(coins.size()):
+				# Prioriza monedas más abajo (cerca de la marea) y cercanas
+				var score: float = coins[i]["pos"].y * 1.5 - seagull_pos.distance_to(coins[i]["pos"]) * 0.4
+				if score > best_score:
+					best_score = score
+					priority_idx = i
+			var c_pos: Vector2 = coins[priority_idx]["pos"]
+			var gull_spd: float = 230.0 + (gull_lvl * 75.0)
+			seagull_pos = seagull_pos.move_toward(c_pos, gull_spd * delta)
+			if seagull_pos.distance_to(c_pos) <= 20.0:
+				_collect_coin(coins[priority_idx])
+				coins.remove_at(priority_idx)
+		else:
+			# Patrulla suavemente en círculo cuando no hay monedas
+			var patrol_target := Vector2(640.0 + cos(wave_time * 1.5) * 260.0, 260.0 + sin(wave_time * 2.0) * 60.0)
+			seagull_pos = seagull_pos.move_toward(patrol_target, 140.0 * delta)
 
 # --- Efectos de Game Feel ("Juice": Screen Shake, Partículas y Ondas - Issue #8) ---
 
@@ -130,7 +197,7 @@ func _update_juice_effects(delta: float) -> void:
 
 	for i in range(particles.size() - 1, -1, -1):
 		var pt: Dictionary = particles[i]
-		pt["vel"].y += 380.0 * delta # Gravedad sobre la arena
+		pt["vel"].y += 380.0 * delta
 		pt["pos"] += pt["vel"] * delta
 		pt["ttl"] -= delta
 		if pt["ttl"] <= 0.0:
@@ -208,7 +275,6 @@ func _use_bucket(pos: Vector2) -> void:
 func _perform_strike(pos: Vector2, radius: float, base_dmg: float, stamina_cost: float, is_bucket: bool) -> void:
 	current_stamina = maxf(0.0, current_stamina - stamina_cost)
 	
-	# 1. Helado "Cohete Tricolor" (🚀 onda expansiva con +60% de radio)
 	var actual_radius: float = radius
 	var rocket_proc: bool = randf() < GameState.get_rocket_ice_cream_chance()
 	if rocket_proc:
@@ -216,17 +282,14 @@ func _perform_strike(pos: Vector2, radius: float, base_dmg: float, stamina_cost:
 		_add_screen_shake(8.0)
 		_spawn_text(pos + Vector2(0, -55), "🚀 ¡COHETE TRICOLOR! Onda Expansiva", Color.DEEP_PINK)
 
-	# Anillo de impacto y partículas de arena al golpear
 	var ring_col: Color = Color.DEEP_PINK if rocket_proc else (Color.CYAN if is_bucket else Color(1.0, 0.85, 0.3))
 	_spawn_shockwave(pos, actual_radius, ring_col)
 	_spawn_particles(pos, 10 if is_bucket else 5, Color("#e9c46a"), 130.0)
 
-	# 2. Helado "Tiburón Azul" (🦈 reduce -2.5s el cooldown del Tractor al golpear)
 	if tractor_cooldown > 0.0 and randf() < GameState.get_shark_ice_cream_chance():
 		tractor_cooldown = maxf(0.0, tractor_cooldown - 2.5)
 		_spawn_text(pos + Vector2(0, -72), "🦈 ¡TIBURÓN AZUL! -2.5s Tractor", Color.DODGER_BLUE)
 
-	# Buscar cuántos bichos hay dentro del golpe (para la subrama de Multigolpe)
 	var hit_indices: Array[int] = []
 	for i in range(crabs.size()):
 		if crabs[i]["pos"].distance_to(pos) <= actual_radius + crabs[i]["radius"]:
@@ -240,7 +303,6 @@ func _perform_strike(pos: Vector2, radius: float, base_dmg: float, stamina_cost:
 		GameState.play_sfx("crit", 0.92, 1.18)
 		_add_screen_shake(6.5)
 
-	# 3. Helado "Conde Colmillos" (🧛 en Golpe Crítico roba +5 Stamina y duplica monedas)
 	var vampire_proc: bool = false
 	if is_crit and not hit_indices.is_empty() and randf() < GameState.get_vampire_ice_cream_chance():
 		vampire_proc = true
@@ -306,15 +368,13 @@ func _on_crab_caught(crab: Dictionary, coin_mult: int = 1) -> void:
 			"pos": crab["pos"] + Vector2(randf_range(-spread, spread), randf_range(-spread * 0.7, spread * 0.7)),
 			"code": chosen_code,
 			"value": randf_range(1.0, 3.0) * val_boost,
-			"pop": 1.0 # Animación de salto inicial al caer en la arena
+			"pop": 1.0
 		})
 
-	# 4. Helado "Pie Helado"
 	if randf() < GameState.get_foot_ice_cream_chance():
 		current_stamina = minf(max_stamina, current_stamina + 7.0)
 		_spawn_text(crab["pos"] + Vector2(0, -40), "🦶 ¡Pie Helado! +7 Stamina", Color.AQUAMARINE)
 
-# 5. Helado "Bombón Magnético"
 func _update_magnum_ice_cream(delta: float) -> void:
 	if GameState.upgrades["ice_cream_magnum"] <= 0 or coins.is_empty():
 		return
@@ -375,7 +435,7 @@ func _collect_coin(c: Dictionary) -> void:
 	GameState.add_currency(c["code"], snappedf(c["value"], 0.5))
 	_spawn_text(c["pos"], "+%.1f %s" % [c["value"], c["code"]], Color.GREEN_YELLOW)
 
-# --- Spawner y Comportamientos de Fauna Marina (Issue #3) ---
+# --- Spawner y Comportamientos de Fauna Marina (Issue #3 & #17) ---
 
 func _update_spawner(delta: float) -> void:
 	spawn_timer -= delta
@@ -444,16 +504,37 @@ func spawn_crab(forced_kind: String = "") -> void:
 		})
 
 func _update_crabs(delta: float) -> void:
+	var active_traps: Array[Vector2] = _get_active_traps()
+	var trap_lvl: int = GameState.upgrades["crab_trap"]
+	var trap_r: float = 65.0 + trap_lvl * 8.0
+	var trap_dps: float = 10.0 + trap_lvl * 8.0
+
 	for i in range(crabs.size() - 1, -1, -1):
 		var c: Dictionary = crabs[i]
 		var kind: String = c.get("kind", "crab")
-		c["pos"] += c["vel"] * delta
+
+		# Verificar si está atrapado en una Nasa de Cangrejos (Issue #17)
+		var in_trap: bool = false
+		for tpos in active_traps:
+			if c["pos"].distance_to(tpos) <= trap_r + c["radius"]:
+				in_trap = true
+				break
+
+		var speed_mult: float = 0.45 if in_trap else 1.0
+		c["pos"] += c["vel"] * speed_mult * delta
+
+		if in_trap:
+			c["hp"] -= trap_dps * delta
+			if c["hp"] <= 0.0:
+				_on_crab_caught(c, 1)
+				crabs.remove_at(i)
+				continue
 
 		if c["hit_flash"] > 0.0:
 			c["hit_flash"] = maxf(0.0, c["hit_flash"] - delta)
 
 		if kind == "clam":
-			c["bury_timer"] -= delta
+			c["bury_timer"] -= delta * speed_mult
 			if c["bury_timer"] <= 0.0:
 				_spawn_text(c["pos"], "🐚 ¡Se enterró!", Color.LIGHT_SKY_BLUE)
 				crabs.remove_at(i)
@@ -490,7 +571,7 @@ func _on_next_day_pressed() -> void:
 	GameState.save_game()
 	get_tree().change_scene_to_file("res://scenes/main/between_days.tscn")
 
-# --- Renderizado Visual con Arte 2D Estilizado y Efectos ("Juice" - Issue #8) ---
+# --- Renderizado Visual con Arte 2D Estilizado y Efectos ("Juice" + Automatización) ---
 
 func _draw() -> void:
 	var font: Font = ThemeDB.fallback_font
@@ -498,6 +579,15 @@ func _draw() -> void:
 	draw_rect(Rect2(0, 0, 1280, 720), Color("#f4d58d"))
 	if wet_sand_alpha > 0.0:
 		draw_rect(Rect2(0, 340, 1280, 380), Color(0.76, 0.62, 0.35, wet_sand_alpha * 0.55))
+
+	# 1b. 🕸️ Nasas / Trampas de Cangrejos en la orilla (Issue #17)
+	var trap_lvl: int = GameState.upgrades["crab_trap"]
+	if trap_lvl > 0:
+		var trap_r: float = 65.0 + trap_lvl * 8.0
+		for tpos in _get_active_traps():
+			draw_circle(tpos, trap_r, Color(0.2, 0.35, 0.25, 0.28))
+			draw_arc(tpos, trap_r, 0, TAU, 28, Color("#2b9348"), 2.5)
+			draw_string(font, tpos + Vector2(-28, 6), "🕸️ NASA", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.WHITE)
 
 	if not surge_active and tide_timer <= 2.5 and round_active:
 		draw_line(Vector2(0, 340), Vector2(1280, 340), Color(0.18, 0.77, 0.71, 0.55), 2.0)
@@ -517,7 +607,7 @@ func _draw() -> void:
 	for c in coins:
 		var jump_y: float = sin(c.get("pop", 0.0) * PI) * -18.0
 		var cpos: Vector2 = c["pos"] + Vector2(0, jump_y)
-		draw_circle(c["pos"] + Vector2(0, 4), 10.0, Color(0, 0, 0, 0.22)) # Sombra
+		draw_circle(c["pos"] + Vector2(0, 4), 10.0, Color(0, 0, 0, 0.22))
 		var col: Color = Color.GOLD if c["code"] == "EUR" else Color.LIGHT_GREEN
 		draw_circle(cpos, 11.5, col)
 		draw_arc(cpos, 11.5, 0, TAU, 16, Color.WHITE, 1.5)
@@ -528,7 +618,6 @@ func _draw() -> void:
 		var p: Vector2 = crab["pos"]
 		var kind: String = crab.get("kind", "crab")
 		var flash: bool = crab["hit_flash"] > 0.0
-		# Sombra en la arena
 		draw_circle(p + Vector2(0, crab["radius"] * 0.45), crab["radius"] * 0.9, Color(0, 0, 0, 0.22))
 
 		if kind == "clam":
@@ -564,7 +653,6 @@ func _draw() -> void:
 			draw_circle(p + Vector2(-20, -14), 8.0, body_col)
 			draw_circle(p + Vector2(20, -14), 8.0, body_col)
 			draw_circle(p, crab["radius"], body_col)
-			# Ojos del cangrejo
 			draw_circle(p + Vector2(-8, -8), 4.5, Color.WHITE)
 			draw_circle(p + Vector2(8, -8), 4.5, Color.WHITE)
 			draw_circle(p + Vector2(-8, -8), 2.0, Color.BLACK)
@@ -574,6 +662,18 @@ func _draw() -> void:
 		var bar_w: float = crab["radius"] * 1.8
 		draw_rect(Rect2(p.x - bar_w * 0.5, p.y - crab["radius"] - 14, bar_w, 6), Color(0, 0, 0, 0.6))
 		draw_rect(Rect2(p.x - bar_w * 0.5, p.y - crab["radius"] - 14, bar_w * hp_ratio, 6), Color.LIME_GREEN)
+
+	# 4b. Ayudantes Autónomos: 👦 Sobrino con Cubo y 🐦 Gaviota Amaestrada (Issue #17)
+	if GameState.upgrades["auto_nephew"] > 0:
+		draw_circle(nephew_pos + Vector2(0, 10), 16.0, Color(0, 0, 0, 0.25))
+		draw_circle(nephew_pos, 18.0, Color("#3a86ff"))
+		draw_string(font, nephew_pos + Vector2(-28, -24), "👦 Sobrino", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.BLACK)
+
+	if GameState.upgrades["auto_seagull"] > 0:
+		draw_circle(seagull_pos + Vector2(0, 22), 12.0, Color(0, 0, 0, 0.18))
+		draw_circle(seagull_pos, 14.0, Color.WHITE)
+		draw_arc(seagull_pos, 14.0, 0, TAU, 16, Color("#0077b6"), 2.0)
+		draw_string(font, seagull_pos + Vector2(-28, -18), "🐦 Gaviota", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.BLACK)
 
 	# 5. Partículas 2D de arena, agua y chispas
 	for pt in particles:
