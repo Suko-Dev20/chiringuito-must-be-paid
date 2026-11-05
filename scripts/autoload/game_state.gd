@@ -33,7 +33,24 @@ var base_exchange_rates: Dictionary = {
 	"PEN": 0.25
 }
 
-# --- Niveles del Árbol de Habilidades ---
+# --- Prestigio Permanente: Conchas Doradas (Issue #6) ---
+var golden_shells: int = 0
+
+var prestige_upgrades: Dictionary = {
+	"sunscreen_stamina": 0, # +20 Stamina máxima permanente por nivel
+	"starting_euros": 0,    # +15 € iniciales al empezar cada nuevo veraneo
+	"permanent_damage": 0,  # +25% Daño permanente con Pala y Cubo
+	"waiter_discount": 0    # -10% descuento permanente en facturas del Chiringuito
+}
+
+var prestige_catalog: Array[Dictionary] = [
+	{"id": "sunscreen_stamina", "title": "🧴 Crema Solar Factor 50", "desc": "+20 Stamina máxima PERMANente en todos los veraneos", "base_cost": 1, "cost_step": 1, "max_lvl": 10},
+	{"id": "starting_euros", "title": "💶 Paga de los Abuelos", "desc": "Empiezas cada nuevo veraneo con +15 € en la cartera", "base_cost": 1, "cost_step": 1, "max_lvl": 10},
+	{"id": "permanent_damage", "title": "💪 Brazo de Socorrista", "desc": "+25% Multiplicador de Daño PERMANENTE con Pala y Cubo", "base_cost": 2, "cost_step": 1, "max_lvl": 8},
+	{"id": "waiter_discount", "title": "🍹 Amigo del Camarero", "desc": "-10% de descuento PERMANENTE en todas las cuentas del Chiringuito", "base_cost": 2, "cost_step": 2, "max_lvl": 5}
+]
+
+# --- Niveles del Árbol de Habilidades (Por Run) ---
 var upgrades: Dictionary = {
 	# Rama 1: Herramientas y Críticos
 	"shovel_damage": 0,
@@ -48,18 +65,18 @@ var upgrades: Dictionary = {
 	"tractor_cooldown": 0,
 	# Rama 3: Kiosco de Helados y Resistencia (Issue #5)
 	"max_stamina": 0,
-	"global_luck": 0,       # Multiplicador global de suerte para helados
-	"ice_cream_foot": 0,    # 🦶 Pie Helado: prob. de recuperar stamina al atrapar
-	"ice_cream_rocket": 0,  # 🚀 Cohete Tricolor: prob. de onda expansiva al golpear
-	"ice_cream_vampire": 0, # 🧛 Conde Colmillos: prob. en crítico de curar stamina y x2 monedas
-	"ice_cream_magnum": 0,  # 🍫 Bombón Magnético: prob. cada seg. de auto-recoger moneda x2 valor
-	"ice_cream_shark": 0,   # 🦈 Tiburón Azul: prob. al golpear de reducir -2.5s cooldown del Tractor
+	"global_luck": 0,
+	"ice_cream_foot": 0,
+	"ice_cream_rocket": 0,
+	"ice_cream_vampire": 0,
+	"ice_cream_magnum": 0,
+	"ice_cream_shark": 0,
 	# Rama 4: Turismo y Divisas
 	"tourist_currencies": 0,
 	"exchange_rate_boost": 0
 }
 
-# Catálogo de mejoras del Árbol de Habilidades (4 Ramas + Subrama Críticos + Kiosco Helados)
+# Catálogo de mejoras del Árbol de Habilidades (4 Ramas)
 var upgrade_catalog: Array[Dictionary] = [
 	# Rama 1: Herramientas y Críticos (branch = 0)
 	{"id": "shovel_damage", "branch": 0, "title": "🏖️ Pala Reforzada", "desc": "+5 Daño base con la pala", "base_cost": 8.0, "cost_mult": 1.5, "max_lvl": 10, "req": ""},
@@ -117,10 +134,43 @@ func buy_upgrade(id: String) -> bool:
 			return true
 	return false
 
+# --- Funciones de Prestigio Permanente (Issue #6) ---
+
+func get_prestige_cost(id: String) -> int:
+	for item in prestige_catalog:
+		if item["id"] == id:
+			var lvl: int = prestige_upgrades.get(id, 0)
+			return item["base_cost"] + (lvl * item["cost_step"])
+	return 999
+
+func buy_prestige_upgrade(id: String) -> bool:
+	for item in prestige_catalog:
+		if item["id"] == id:
+			var lvl: int = prestige_upgrades.get(id, 0)
+			if lvl >= item["max_lvl"]:
+				return false
+			var cost: int = get_prestige_cost(id)
+			if golden_shells < cost:
+				return false
+			golden_shells -= cost
+			prestige_upgrades[id] = lvl + 1
+			return true
+	return false
+
+func calculate_prestige_reward() -> int:
+	return maxi(1, current_bill_index * 2 + int(current_day / 3.0))
+
+func award_bankruptcy_shells() -> int:
+	var earned: int = calculate_prestige_reward()
+	golden_shells += earned
+	return earned
+
 # --- Estadísticas Calculadas Dinámicamente ---
 
 func get_shovel_damage() -> float:
-	return 10.0 + (upgrades["shovel_damage"] * 5.0)
+	var base: float = 10.0 + (upgrades["shovel_damage"] * 5.0)
+	var perm_mult: float = 1.0 + (prestige_upgrades["permanent_damage"] * 0.25)
+	return base * perm_mult
 
 func get_shovel_radius() -> float:
 	return 42.0 + (upgrades["shovel_radius"] * 8.0)
@@ -137,7 +187,7 @@ func get_rake_radius() -> float:
 	return 48.0 + (upgrades["rake_magnet"] * 22.0)
 
 func get_max_stamina() -> float:
-	return 100.0 + (upgrades["max_stamina"] * 25.0)
+	return 100.0 + (upgrades["max_stamina"] * 25.0) + (prestige_upgrades["sunscreen_stamina"] * 20.0)
 
 func get_luck_multiplier() -> float:
 	return 1.0 + (upgrades["global_luck"] * 0.20)
@@ -175,7 +225,12 @@ func get_fridge_summary() -> String:
 
 func get_current_bill() -> Dictionary:
 	var idx: int = mini(current_bill_index, bills.size() - 1)
-	return bills[idx]
+	var raw_bill: Dictionary = bills[idx]
+	var discount: float = clampf(1.0 - (prestige_upgrades["waiter_discount"] * 0.10), 0.4, 1.0)
+	return {
+		"title": raw_bill["title"],
+		"amount": snappedf(raw_bill["amount"] * discount, 1.0)
+	}
 
 func get_effective_exchange_rate(code: String) -> float:
 	var bonus_mult: float = 1.0 + (upgrades["exchange_rate_boost"] * 0.15)
@@ -197,6 +252,7 @@ func pay_current_bill() -> bool:
 		return false
 	currencies["EUR"] = snappedf(currencies["EUR"] - cost, 0.1)
 	current_bill_index += 1
+	golden_shells += 1 # +1 Concha Dorada de premio por cada factura superada
 	currencies_updated.emit()
 	return true
 
@@ -205,6 +261,8 @@ func reset_run() -> void:
 	current_bill_index = 0
 	for code in currencies.keys():
 		currencies[code] = 0.0
+	# Aplicamos la mejora permanente "Paga de los Abuelos"
+	currencies["EUR"] = prestige_upgrades["starting_euros"] * 15.0
 	for upg in upgrades.keys():
 		upgrades[upg] = 0
 	currencies_updated.emit()

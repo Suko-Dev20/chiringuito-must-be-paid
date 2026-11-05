@@ -1,8 +1,8 @@
 extends Node2D
 ## Escena Entre Rondas ("El Paseo Marítimo"):
 ## 1. Caseta de Cambio de Divisas (USD, GBP, PEN -> EUR)
-## 2. Árbol de Habilidades Interactivo (4 Ramas + Kiosco de Helados completo)
-## 3. El Ticket del Chiringuito (Cobro obligatorio cada 3 días o Fin de Veraneo)
+## 2. Árbol de Habilidades Interactivo (4 Ramas + 5ª Pestaña de Prestigio Permanente)
+## 3. El Ticket del Chiringuito y Sistema de Bancarrota / Fin de Veraneo (Conchas Doradas)
 
 var bill_paid_today: bool = false
 var bankruptcy_state: bool = false
@@ -11,10 +11,11 @@ var status_color: Color = Color.GOLD
 
 var selected_branch: int = 0
 var branch_titles: Array[String] = [
-	"🏖️ 1. Herramientas y Críticos",
-	"🚜 2. Playa y Tractor",
-	"🍦 3. Helados y Stamina",
-	"💱 4. Turismo y Divisas"
+	"🏖️ 1. Herramientas",
+	"🚜 2. Playa/Tractor",
+	"🍦 3. Helados/Suerte",
+	"💱 4. Divisas",
+	"🐚 5. Prestigio"
 ]
 
 # Áreas clicables dinámicas
@@ -27,14 +28,14 @@ var upgrade_card_rects: Array[Dictionary] = []
 func _ready() -> void:
 	bill_paid_today = not GameState.is_bill_due_today()
 	bankruptcy_state = false
-	for i in range(4):
-		tab_rects.append(Rect2(390 + i * 215, 110, 208, 44))
+	for i in range(5):
+		tab_rects.append(Rect2(392 + i * 172, 110, 166, 44))
 	if GameState.is_bill_due_today():
 		status_message = "⚠️ ¡HOY VENCE EL TICKET DEL CHIRINGUITO! Cambia divisas y paga la cuenta antes de ir al siguiente día."
 		status_color = Color.ORANGE_RED
 	else:
 		var days_left: int = GameState.days_per_bill - (GameState.current_day % GameState.days_per_bill)
-		status_message = "🏖️ Paseo Marítimo — Compra mejoras o Helados en el Kiosco. Faltan %d día(s) para la cuenta." % days_left
+		status_message = "🏖️ Paseo Marítimo — Compra mejoras o Helados. Faltan %d día(s) para la cuenta." % days_left
 		status_color = Color.AQUAMARINE
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -47,7 +48,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				return
 		for card in upgrade_card_rects:
 			if card["rect"].has_point(mpos):
-				_on_upgrade_clicked(card["id"])
+				if selected_branch == 4:
+					_on_prestige_clicked(card["id"])
+				else:
+					_on_upgrade_clicked(card["id"])
 				return
 		if btn_exchange_rect.has_point(mpos):
 			_on_exchange_pressed()
@@ -68,6 +72,16 @@ func _on_upgrade_clicked(id: String) -> void:
 		status_color = Color.LIME_GREEN
 	else:
 		status_message = "❌ No tienes suficientes Euros (%.1f € requeridos) o ya está al nivel máximo." % cost
+		status_color = Color.SALMON
+	queue_redraw()
+
+func _on_prestige_clicked(id: String) -> void:
+	var cost: int = GameState.get_prestige_cost(id)
+	if GameState.buy_prestige_upgrade(id):
+		status_message = "🐚 ¡Mejora PERMANENTE de Prestigio adquirida por %d Concha(s) Dorada(s)!" % cost
+		status_color = Color.GOLD
+	else:
+		status_message = "❌ Necesitas %d 🐚 Conchas Doradas (o ya alcanzaste el nivel máximo)." % cost
 		status_color = Color.SALMON
 	queue_redraw()
 
@@ -92,12 +106,14 @@ func _on_pay_bill_pressed() -> void:
 
 	if GameState.pay_current_bill():
 		bill_paid_today = true
-		status_message = "✅ ¡Cuenta del Chiringuito pagada! Tu familia sigue de vacaciones."
+		status_message = "✅ ¡Cuenta pagada! Has ganado +1 🐚 Concha Dorada de prestigio por superar el ciclo."
 		status_color = Color.LIME_GREEN
 	else:
 		bankruptcy_state = true
-		status_message = "❌ ¡NO TIENES SUFICIENTES EUROS! El camarero os ha echado de la playa (Fin de la Run)."
-		status_color = Color.RED
+		var earned_shells: int = GameState.award_bankruptcy_shells()
+		selected_branch = 4 # Abrir automáticamente la pestaña de Prestigio Permanente
+		status_message = "🐚 ¡FIN DE VERANEO! Has ganado +%d Concha(s) Dorada(s). Gástalas en mejoras PERMANENTES antes de reiniciar." % earned_shells
+		status_color = Color.GOLD
 	queue_redraw()
 
 func _on_next_action_pressed() -> void:
@@ -124,9 +140,9 @@ func _draw() -> void:
 	draw_rect(Rect2(0, 0, 1280, 88), Color("#0d1b2a"))
 
 	# Cabecera
-	draw_string(font, Vector2(30, 38), "🌅 FIN DEL DÍA %d — PASEO MARÍTIMO & KIOSCO DE HELADOS" % GameState.current_day, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color.WHITE)
-	draw_string(font, Vector2(30, 68), status_message, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, status_color)
-	draw_string(font, Vector2(960, 50), "💶 CARTERA: %.1f €" % GameState.currencies["EUR"], HORIZONTAL_ALIGNMENT_LEFT, -1, 24, Color.GOLD)
+	draw_string(font, Vector2(30, 38), "🌅 FIN DEL DÍA %d — PASEO MARÍTIMO & TIENDA DE PRESTIGIO" % GameState.current_day, HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color.WHITE)
+	draw_string(font, Vector2(30, 68), status_message, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, status_color)
+	draw_string(font, Vector2(790, 50), "💶 %.1f €   |   🐚 %d Conchas Doradas" % [GameState.currencies["EUR"], GameState.golden_shells], HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color.GOLD)
 
 	# --- COLUMNA IZQUIERDA: CASETA DE CAMBIO + CHIRINGUITO ---
 	draw_rect(Rect2(20, 105, 350, 600), Color("#0d1b2a"))
@@ -155,30 +171,57 @@ func _draw() -> void:
 	draw_rect(btn_exchange_rect, Color("#2a9d8f") if pending_eur > 0.0 else Color("#415a77"))
 	draw_string(font, btn_exchange_rect.position + Vector2(20, 31), "💱 CAMBIAR DIVISAS (+%.1f €)" % pending_eur, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.WHITE)
 
-	if GameState.is_bill_due_today() and not bill_paid_today:
+	if GameState.is_bill_due_today() and not bill_paid_today and not bankruptcy_state:
 		var can_afford: bool = GameState.currencies["EUR"] >= bill["amount"]
 		draw_rect(btn_pay_bill_rect, Color("#2b9348") if can_afford else Color("#e63946"))
-		var pay_txt: String = "🧾 PAGAR CUENTA (%.0f €)" % bill["amount"] if can_afford else "❌ NO ALCANZA (Fin de Run)"
-		draw_string(font, btn_pay_bill_rect.position + Vector2(25, 31), pay_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.WHITE)
+		var pay_txt: String = "🧾 PAGAR CUENTA (%.0f €)" % bill["amount"] if can_afford else "🐚 FIN DE VERANEO (+%d Conchas)" % GameState.calculate_prestige_reward()
+		draw_string(font, btn_pay_bill_rect.position + Vector2(18, 31), pay_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.WHITE)
 
 	var next_col: Color = Color("#e76f51") if bankruptcy_state else (Color("#f4a261") if bill_paid_today else Color("#415a77"))
 	draw_rect(btn_next_day_rect, next_col)
 	var next_txt: String = "🔄 NUEVO VERANEO (Día 1)" if bankruptcy_state else "🏖️ IR AL DÍA %d DE PLAYA ->" % (GameState.current_day + 1)
-	draw_string(font, btn_next_day_rect.position + Vector2(35, 33), next_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color.BLACK if bill_paid_today else Color.WHITE)
+	draw_string(font, btn_next_day_rect.position + Vector2(35, 33), next_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color.BLACK if (bill_paid_today or bankruptcy_state) else Color.WHITE)
 
-	# --- PANEL DERECHO: ÁRBOL DE HABILIDADES (4 RAMAS) ---
+	# --- PANEL DERECHO: ÁRBOL DE HABILIDADES (4 RAMAS + PRESTIGIO PERMANENTE) ---
 	draw_rect(Rect2(385, 105, 875, 600), Color("#0d1b2a"))
-	draw_rect(Rect2(385, 105, 875, 600), Color("#2ec4b6"), false, 2.0)
+	draw_rect(Rect2(385, 105, 875, 600), Color.GOLD if selected_branch == 4 else Color("#2ec4b6"), false, 2.0)
 
-	# Pestañas de las 4 ramas
-	for i in range(4):
+	# Pestañas (4 Ramas + 5ª Pestaña de Prestigio)
+	for i in range(5):
 		var trect: Rect2 = tab_rects[i]
 		var is_sel: bool = (i == selected_branch)
-		draw_rect(trect, Color("#2ec4b6") if is_sel else Color("#1b263b"))
-		draw_string(font, trect.position + Vector2(10, 28), branch_titles[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.BLACK if is_sel else Color.WHITE)
+		var tab_col: Color = (Color.GOLD if i == 4 else Color("#2ec4b6")) if is_sel else Color("#1b263b")
+		draw_rect(trect, tab_col)
+		draw_string(font, trect.position + Vector2(8, 28), branch_titles[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.BLACK if is_sel else Color.WHITE)
 
-	# Nodos de la rama seleccionada (compactos para que quepan los 7 nodos de la Rama 3)
 	var card_y: float = 170.0
+	if selected_branch == 4:
+		# Renderizar Tienda Permanente de Prestigio (Conchas Doradas)
+		draw_string(font, Vector2(410, 190), "🐚 TIENDA DE VERANEO PERMANENTE (Tus mejoras aquí NUNCA se pierden al reiniciar):", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.GOLD)
+		card_y = 210.0
+		for pitem in GameState.prestige_catalog:
+			var pid: String = pitem["id"]
+			var plvl: int = GameState.prestige_upgrades.get(pid, 0)
+			var pmax: int = pitem["max_lvl"]
+			var pcost: int = GameState.get_prestige_cost(pid)
+			var pcan_buy: bool = plvl < pmax and GameState.golden_shells >= pcost
+
+			var prect := Rect2(410, card_y, 825, 84)
+			upgrade_card_rects.append({"id": pid, "rect": prect})
+
+			var pbg: Color = Color("#2b9348") if plvl >= pmax else (Color("#3d2c8d") if pcan_buy else Color("#1d3557"))
+			draw_rect(prect, pbg)
+			draw_rect(prect, Color.GOLD if pcan_buy else Color("#415a77"), false, 2.0)
+
+			draw_string(font, prect.position + Vector2(18, 30), "%s   [Nivel %d / %d]" % [pitem["title"], plvl, pmax], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.WHITE)
+			draw_string(font, prect.position + Vector2(18, 60), pitem["desc"], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.LIGHT_GRAY)
+
+			var pprice: String = "✅ MÁXIMO" if plvl >= pmax else "Comprar: %d 🐚" % pcost
+			draw_string(font, prect.position + Vector2(650, 48), pprice, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.GOLD if pcan_buy else Color.SALMON)
+			card_y += 98.0
+		return
+
+	# Nodos de las 4 ramas normales
 	for item in GameState.upgrade_catalog:
 		if item["branch"] != selected_branch:
 			continue
