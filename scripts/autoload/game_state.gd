@@ -1,12 +1,16 @@
 extends Node
 ## Estado global del juego (Autoload: GameState)
-## Incluye Store Global, Guardado/Carga, Audio Procedural y Mercado de Divisas Dinámico (Issue #18).
+## Incluye Store Global, Guardado/Carga, Audio Procedural, Mercado Dinámico y Opciones de PC/Steam (Issue #20).
 
 signal currencies_updated
 signal stamina_changed(current: float, maximum: float)
 signal day_changed(current_day: int, bill_due_day: int)
 
 const SAVE_PATH: String = "user://savegame.json"
+
+# --- Opciones de Audio y Pantalla (Issue #20) ---
+var master_volume_pct: int = 100
+var is_fullscreen: bool = false
 
 # --- Pool de Audio Procedural con Variación de Pitch (Issue #8) ---
 var sfx_streams: Dictionary = {}
@@ -38,7 +42,6 @@ var base_exchange_rates: Dictionary = {
 	"PEN": 0.25
 }
 
-# Multiplicador de mercado del día actual para cada divisa extranjera (0.80 a 1.45)
 var market_multipliers: Dictionary = {
 	"USD": 1.0,
 	"GBP": 1.25,
@@ -96,7 +99,7 @@ var upgrade_catalog: Array[Dictionary] = [
 	{"id": "unlock_bucket", "branch": 0, "title": "🪣 Cubo Pesado (Clic Der)", "desc": "Desbloquea/mejora el Cubazo en área (+Daño y -Cooldown)", "base_cost": 18.0, "cost_mult": 1.7, "max_lvl": 5, "req": "shovel_radius"},
 	{"id": "rake_magnet", "branch": 0, "title": "🧹 Rastrillo Imantado", "desc": "+22 px de radio para recoger monedas al mover el ratón", "base_cost": 10.0, "cost_mult": 1.5, "max_lvl": 6, "req": ""},
 
-	# Rama 2: Playa, Tractor y Automatización Playera (branch = 1 - Issue #17)
+	# Rama 2: Playa, Tractor y Automatización Playera (branch = 1)
 	{"id": "crab_spawn_rate", "branch": 1, "title": "🦀 Cebo Playero", "desc": "Aparecen más bichos marinos y más rápido en la orilla", "base_cost": 10.0, "cost_mult": 1.5, "max_lvl": 8, "req": ""},
 	{"id": "auto_nephew", "branch": 1, "title": "👦 Sobrino con Cubo (Auto)", "desc": "Persigue bichos por la arena y los golpea solo SIN gastar tu Stamina", "base_cost": 18.0, "cost_mult": 1.65, "max_lvl": 5, "req": "crab_spawn_rate"},
 	{"id": "auto_seagull", "branch": 1, "title": "🐦 Gaviota Amaestrada (Auto)", "desc": "Vuela hacia las monedas sueltas (salvándolas de la ola) y las recoge", "base_cost": 20.0, "cost_mult": 1.65, "max_lvl": 5, "req": "crab_spawn_rate"},
@@ -123,13 +126,51 @@ func _ready() -> void:
 	if not load_game():
 		roll_daily_market()
 
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_F11:
+			toggle_fullscreen()
+		elif event.keycode == KEY_ESCAPE:
+			var current_scene: Node = get_tree().current_scene
+			if current_scene and current_scene.name != "MainMenu":
+				save_game()
+				get_tree().change_scene_to_file("res://scenes/main/main_menu.tscn")
+
+# --- Opciones de Volumen y Pantalla Completa (Issue #20) ---
+
+func cycle_volume() -> void:
+	if master_volume_pct == 100:
+		master_volume_pct = 50
+	elif master_volume_pct == 50:
+		master_volume_pct = 0
+	else:
+		master_volume_pct = 100
+	_apply_audio_volume()
+	play_sfx("buy")
+	save_game()
+
+func _apply_audio_volume() -> void:
+	var db: float = -80.0
+	if master_volume_pct == 100:
+		db = -6.0
+	elif master_volume_pct == 50:
+		db = -15.0
+	for p in sfx_players:
+		p.volume_db = db
+
+func toggle_fullscreen() -> void:
+	is_fullscreen = not is_fullscreen
+	if is_fullscreen:
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+	else:
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+
 # --- Mercado de Divisas Dinámico (Issue #18) ---
 
 func roll_daily_market() -> void:
 	var codes: Array[String] = ["USD", "GBP", "PEN"]
 	for c in codes:
 		market_multipliers[c] = snappedf(randf_range(0.80, 1.35), 0.05)
-	# Garantizar al menos una divisa en fuerte ALZA cada día (+25% a +45%)
 	var hot_code: String = codes.pick_random()
 	market_multipliers[hot_code] = snappedf(randf_range(1.25, 1.45), 0.05)
 
@@ -160,7 +201,7 @@ func exchange_single_currency_to_eur(code: String) -> float:
 func _init_procedural_audio() -> void:
 	for i in range(10):
 		var p := AudioStreamPlayer.new()
-		p.volume_db = -7.0
+		p.volume_db = -6.0
 		add_child(p)
 		sfx_players.append(p)
 
@@ -193,7 +234,7 @@ func _make_tone(f_start: float, f_end: float, duration: float, noise_mix: float)
 	return stream
 
 func play_sfx(kind: String, min_pitch: float = 0.88, max_pitch: float = 1.16) -> void:
-	if not sfx_streams.has(kind):
+	if master_volume_pct <= 0 or not sfx_streams.has(kind):
 		return
 	for p in sfx_players:
 		if not p.playing:
@@ -204,11 +245,15 @@ func play_sfx(kind: String, min_pitch: float = 0.88, max_pitch: float = 1.16) ->
 
 # --- Sistema de Guardado y Carga Automática (Issue #7) ---
 
+func has_saved_progress() -> bool:
+	return FileAccess.file_exists(SAVE_PATH) and (current_day > 1 or golden_shells > 0 or currencies["EUR"] > 0.0)
+
 func save_game() -> void:
 	var data: Dictionary = {
 		"version": 1,
 		"current_day": current_day,
 		"current_bill_index": current_bill_index,
+		"master_volume_pct": master_volume_pct,
 		"currencies": currencies,
 		"market_multipliers": market_multipliers,
 		"upgrades": upgrades,
@@ -237,6 +282,8 @@ func load_game() -> bool:
 	current_day = int(data.get("current_day", 1))
 	current_bill_index = int(data.get("current_bill_index", 0))
 	golden_shells = int(data.get("golden_shells", 0))
+	master_volume_pct = int(data.get("master_volume_pct", 100))
+	_apply_audio_volume()
 
 	if data.has("currencies") and typeof(data["currencies"]) == TYPE_DICTIONARY:
 		for k in currencies.keys():
@@ -394,12 +441,19 @@ func get_fridge_summary() -> String:
 	return " ".join(icons)
 
 func get_current_bill() -> Dictionary:
-	var idx: int = mini(current_bill_index, bills.size() - 1)
-	var raw_bill: Dictionary = bills[idx]
 	var discount: float = clampf(1.0 - (prestige_upgrades["waiter_discount"] * 0.10), 0.4, 1.0)
+	if current_bill_index < bills.size():
+		var raw_bill: Dictionary = bills[current_bill_index]
+		return {
+			"title": raw_bill["title"],
+			"amount": snappedf(raw_bill["amount"] * discount, 1.0)
+		}
+	# Modo Veraneo Infinito tras superar la 4ª comanda
+	var extra_cycles: int = current_bill_index - bills.size() + 1
+	var endless_amount: float = 3000.0 * pow(2.4, extra_cycles)
 	return {
-		"title": raw_bill["title"],
-		"amount": snappedf(raw_bill["amount"] * discount, 1.0)
+		"title": "🍹 Reserva VIP Chiringuito #%d" % (current_bill_index + 1),
+		"amount": snappedf(endless_amount * discount, 1.0)
 	}
 
 func get_effective_exchange_rate(code: String) -> float:
@@ -423,7 +477,10 @@ func pay_current_bill() -> bool:
 		return false
 	currencies["EUR"] = snappedf(currencies["EUR"] - cost, 0.1)
 	current_bill_index += 1
-	golden_shells += 1
+	if current_bill_index == bills.size():
+		golden_shells += 5 # Gran premio por superar la Paella del Cuñado
+	else:
+		golden_shells += 1
 	currencies_updated.emit()
 	play_sfx("buy", 1.05, 1.25)
 	save_game()
