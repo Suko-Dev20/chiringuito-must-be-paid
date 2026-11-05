@@ -43,20 +43,20 @@ Estás de vacaciones en la playa con la familia y la cuenta del **Chiringuito** 
 - [x] Autoload `GameState` con divisas (`EUR`, `USD`, `GBP`, `PEN`), días y facturas.
 - [x] Ronda activa en `beach_round.gd` con Pala (Clic Izq), Cubo (Clic Der), Rastrillo (imán de monedas), Tractor Limpia-Playas (`Espacio`) y sistema de Críticos/Multigolpe.
 
-### Fase 2: Pantalla Entre Rondas (Árbol de Habilidades, Caseta y Chiringuito)
-- [ ] **Issue #1:** Crear escena entre rondas (`between_days.tscn`) con la **Caseta de Cambio de Divisas** interactiva y el pago de facturas del **Chiringuito** cada 3 días.
-- [ ] **Issue #2:** Implementar el **Árbol de Habilidades interactivo** (4 ramas: Herramientas/Críticos, Playa/Tractor, Kiosco de Helados/Suerte, Turismo/Divisas) con compra de mejoras conectada a `GameState`.
+### Fase 2: Pantalla Entre Rondas (Árbol de Habilidades, Caseta y Chiringuito) (✅ Completado)
+- [x] **Issue #1:** Crear escena entre rondas (`between_days.tscn`) con la **Caseta de Cambio de Divisas** interactiva y el pago de facturas del **Chiringuito** cada 3 días.
+- [x] **Issue #2:** Implementar el **Árbol de Habilidades interactivo** (4 ramas: Herramientas/Críticos, Playa/Tractor, Kiosco de Helados/Suerte, Turismo/Divisas) con compra de mejoras conectada a `GameState`.
 
-### Fase 3: Variedad de Fauna Marina y Comportamientos
-- [ ] **Issue #3:** Nuevos tipos de bichos en la playa: **Almeja/Coquina** (se entierra rápido si no la golpeas), **Pulpo Turista** (tanque para usar el Cubo, suelta explosión de divisas) y **Langosta Dorada** (rápida, alto valor).
-- [ ] **Issue #4:** Sistema de olas dinámicas en la orilla (las olas traen nuevos bichos y arrastran las monedas que lleven mucho tiempo en la arena si no usas el rastrillo o el tractor).
+### Fase 3: Variedad de Fauna Marina y Comportamientos (✅ Completado)
+- [x] **Issue #3:** Nuevos tipos de bichos en la playa: **Almeja/Coquina** (se entierra rápido si no la golpeas), **Pulpo Turista** (tanque para usar el Cubo, suelta explosión de divisas) y **Langosta Dorada** (rápida, alto valor).
+- [x] **Issue #4:** Sistema de olas dinámicas en la orilla (las olas traen nuevos bichos y arrastran las monedas que lleven mucho tiempo en la arena si no usas el rastrillo o el tractor).
 
-### Fase 4: Kiosco de Helados y Sinergias de Suerte
-- [ ] **Issue #5:** Implementar la Nevera de Helados y los efectos pasivos por probabilidad (*Cohete Tricolor*, *Conde Colmillos*, *Bombón Magnético*, *Tiburón Azul*) + estadística global de Suerte.
+### Fase 4: Kiosco de Helados y Sinergias de Suerte (✅ Completado)
+- [x] **Issue #5:** Implementar la Nevera de Helados y los efectos pasivos por probabilidad (*Cohete Tricolor*, *Conde Colmillos*, *Bombón Magnético*, *Tiburón Azul*) + estadística global de Suerte.
 
-### Fase 5: Ciclo de Bancarrota, Prestigio y Guardado
-- [ ] **Issue #6:** Sistema de **Fin de Veraneo (Prestigio / Bancarrota)** cuando no llegas a pagar el Chiringuito: obtención de *Conchas Doradas* y tienda de mejoras permanentes.
-- [ ] **Issue #7:** Sistema de Guardado y Carga automática en disco (`user://savegame.json`).
+### Fase 5: Ciclo de Bancarrota, Prestigio y Guardado (✅ Completado)
+- [x] **Issue #6:** Sistema de **Fin de Veraneo (Prestigio / Bancarrota)** cuando no llegas a pagar el Chiringuito: obtención de *Conchas Doradas* y tienda de mejoras permanentes.
+- [x] **Issue #7:** Sistema de Guardado y Carga automática en disco (`user://savegame.json`).
 
-### Fase 6: Arte, "Juice" (Game Feel), Audio y Steam
-- [ ] **Issue #8:** *Game Feel* y Jugosidad: *Screen shake* en críticos y cubazos, partículas de arena/agua, sonidos con variación de *pitch* (`AudioStreamRandomizer`) y sprites 2D definitivos.
+### Fase 6: Arte, "Juice" (Game Feel), Audio y Steam (✅ Completado)
+- [x] **Issue #8:** *Game Feel* y Jugosidad: *Screen shake* en críticos y cubazos, partículas de arena/agua, sonidos con variación de *pitch* (`AudioStreamWAV`) y detalles 2D.
