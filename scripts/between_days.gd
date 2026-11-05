@@ -2,7 +2,7 @@ extends Node2D
 ## Escena Entre Rondas ("El Paseo Marítimo"):
 ## 1. Caseta de Cambio de Divisas (USD, GBP, PEN -> EUR)
 ## 2. Árbol de Habilidades Interactivo (4 Ramas + 5ª Pestaña de Prestigio Permanente)
-## 3. El Ticket del Chiringuito y Sistema de Bancarrota / Fin de Veraneo (Conchas Doradas)
+## 3. El Ticket del Chiringuito, Prestigio y Autoguardado (user://savegame.json)
 
 var bill_paid_today: bool = false
 var bankruptcy_state: bool = false
@@ -22,20 +22,22 @@ var branch_titles: Array[String] = [
 var btn_exchange_rect := Rect2(30, 520, 330, 50)
 var btn_pay_bill_rect := Rect2(30, 585, 330, 50)
 var btn_next_day_rect := Rect2(30, 645, 330, 54)
+var btn_wipe_save_rect := Rect2(955, 625, 280, 44)
 var tab_rects: Array[Rect2] = []
 var upgrade_card_rects: Array[Dictionary] = []
 
 func _ready() -> void:
+	GameState.save_game()
 	bill_paid_today = not GameState.is_bill_due_today()
 	bankruptcy_state = false
 	for i in range(5):
 		tab_rects.append(Rect2(392 + i * 172, 110, 166, 44))
 	if GameState.is_bill_due_today():
-		status_message = "⚠️ ¡HOY VENCE EL TICKET DEL CHIRINGUITO! Cambia divisas y paga la cuenta antes de ir al siguiente día."
+		status_message = "⚠️ ¡HOY VENCE EL TICKET DEL CHIRINGUITO! Cambia divisas y paga la cuenta. (💾 Autoguardado)"
 		status_color = Color.ORANGE_RED
 	else:
 		var days_left: int = GameState.days_per_bill - (GameState.current_day % GameState.days_per_bill)
-		status_message = "🏖️ Paseo Marítimo — Compra mejoras o Helados. Faltan %d día(s) para la cuenta." % days_left
+		status_message = "🏖️ Paseo Marítimo (💾 Partida guardada) — Faltan %d día(s) para la cuenta." % days_left
 		status_color = Color.AQUAMARINE
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -46,6 +48,12 @@ func _unhandled_input(event: InputEvent) -> void:
 				selected_branch = i
 				queue_redraw()
 				return
+		if selected_branch == 4 and btn_wipe_save_rect.has_point(mpos):
+			GameState.delete_save_and_reset_all()
+			status_message = "🗑️ Partida guardada borrada por completo. Todo reiniciado desde cero."
+			status_color = Color.ORANGE
+			queue_redraw()
+			return
 		for card in upgrade_card_rects:
 			if card["rect"].has_point(mpos):
 				if selected_branch == 4:
@@ -68,7 +76,7 @@ func _on_upgrade_clicked(id: String) -> void:
 		return
 	var cost: float = GameState.get_upgrade_cost(id)
 	if GameState.buy_upgrade(id):
-		status_message = "✨ ¡Mejora comprada por %.1f €! Nevera activa: %s" % [cost, GameState.get_fridge_summary()]
+		status_message = "✨ ¡Mejora comprada y guardada (%.1f €)! Nevera: %s" % [cost, GameState.get_fridge_summary()]
 		status_color = Color.LIME_GREEN
 	else:
 		status_message = "❌ No tienes suficientes Euros (%.1f € requeridos) o ya está al nivel máximo." % cost
@@ -78,7 +86,7 @@ func _on_upgrade_clicked(id: String) -> void:
 func _on_prestige_clicked(id: String) -> void:
 	var cost: int = GameState.get_prestige_cost(id)
 	if GameState.buy_prestige_upgrade(id):
-		status_message = "🐚 ¡Mejora PERMANENTE de Prestigio adquirida por %d Concha(s) Dorada(s)!" % cost
+		status_message = "🐚 ¡Mejora PERMANENTE adquirida y guardada por %d Concha(s) Dorada(s)!" % cost
 		status_color = Color.GOLD
 	else:
 		status_message = "❌ Necesitas %d 🐚 Conchas Doradas (o ya alcanzaste el nivel máximo)." % cost
@@ -92,7 +100,7 @@ func _on_exchange_pressed() -> void:
 		status_color = Color.LIGHT_GRAY
 	else:
 		var gained: float = GameState.exchange_all_to_eur()
-		status_message = "💱 ¡Cambio realizado! Has recibido +%.1f € en la Caseta de Cambio." % gained
+		status_message = "💱 ¡Cambio realizado y guardado! Has recibido +%.1f € en la Caseta." % gained
 		status_color = Color.GREEN_YELLOW
 	queue_redraw()
 
@@ -106,13 +114,13 @@ func _on_pay_bill_pressed() -> void:
 
 	if GameState.pay_current_bill():
 		bill_paid_today = true
-		status_message = "✅ ¡Cuenta pagada! Has ganado +1 🐚 Concha Dorada de prestigio por superar el ciclo."
+		status_message = "✅ ¡Cuenta pagada! +1 🐚 Concha Dorada de prestigio (💾 Progreso guardado)."
 		status_color = Color.LIME_GREEN
 	else:
 		bankruptcy_state = true
 		var earned_shells: int = GameState.award_bankruptcy_shells()
-		selected_branch = 4 # Abrir automáticamente la pestaña de Prestigio Permanente
-		status_message = "🐚 ¡FIN DE VERANEO! Has ganado +%d Concha(s) Dorada(s). Gástalas en mejoras PERMANENTES antes de reiniciar." % earned_shells
+		selected_branch = 4
+		status_message = "🐚 ¡FIN DE VERANEO! Has ganado +%d Concha(s) Dorada(s) (💾 Guardado)." % earned_shells
 		status_color = Color.GOLD
 	queue_redraw()
 
@@ -129,6 +137,7 @@ func _on_next_action_pressed() -> void:
 		return
 
 	GameState.current_day += 1
+	GameState.save_game()
 	get_tree().change_scene_to_file("res://scenes/main/beach_round.tscn")
 
 func _draw() -> void:
@@ -196,8 +205,7 @@ func _draw() -> void:
 
 	var card_y: float = 170.0
 	if selected_branch == 4:
-		# Renderizar Tienda Permanente de Prestigio (Conchas Doradas)
-		draw_string(font, Vector2(410, 190), "🐚 TIENDA DE VERANEO PERMANENTE (Tus mejoras aquí NUNCA se pierden al reiniciar):", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.GOLD)
+		draw_string(font, Vector2(410, 190), "🐚 TIENDA DE VERANEO PERMANENTE (Guardado automático en user://savegame.json):", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.GOLD)
 		card_y = 210.0
 		for pitem in GameState.prestige_catalog:
 			var pid: String = pitem["id"]
@@ -219,6 +227,10 @@ func _draw() -> void:
 			var pprice: String = "✅ MÁXIMO" if plvl >= pmax else "Comprar: %d 🐚" % pcost
 			draw_string(font, prect.position + Vector2(650, 48), pprice, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.GOLD if pcan_buy else Color.SALMON)
 			card_y += 98.0
+
+		# Botón para borrar partida guardada si se quiere probar desde cero
+		draw_rect(btn_wipe_save_rect, Color("#6a040f"))
+		draw_string(font, btn_wipe_save_rect.position + Vector2(18, 28), "🗑️ Borrar Partida Guardada", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.WHITE)
 		return
 
 	# Nodos de las 4 ramas normales
