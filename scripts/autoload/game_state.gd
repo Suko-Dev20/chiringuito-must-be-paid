@@ -66,6 +66,9 @@ var upgrades: Dictionary = {
 	"crab_spawn_rate": 0,
 	"unlock_tractor": 0,
 	"tractor_cooldown": 0,
+	"auto_nephew": 0,
+	"auto_seagull": 0,
+	"crab_trap": 0,
 	"max_stamina": 0,
 	"global_luck": 0,
 	"ice_cream_foot": 0,
@@ -86,8 +89,11 @@ var upgrade_catalog: Array[Dictionary] = [
 	{"id": "unlock_bucket", "branch": 0, "title": "🪣 Cubo Pesado (Clic Der)", "desc": "Desbloquea/mejora el Cubazo en área (+Daño y -Cooldown)", "base_cost": 18.0, "cost_mult": 1.7, "max_lvl": 5, "req": "shovel_radius"},
 	{"id": "rake_magnet", "branch": 0, "title": "🧹 Rastrillo Imantado", "desc": "+22 px de radio para recoger monedas al mover el ratón", "base_cost": 10.0, "cost_mult": 1.5, "max_lvl": 6, "req": ""},
 
-	# Rama 2: Playa y Tractor (branch = 1)
+	# Rama 2: Playa, Tractor y Automatización Playera (branch = 1 - Issue #17)
 	{"id": "crab_spawn_rate", "branch": 1, "title": "🦀 Cebo Playero", "desc": "Aparecen más bichos marinos y más rápido en la orilla", "base_cost": 10.0, "cost_mult": 1.5, "max_lvl": 8, "req": ""},
+	{"id": "auto_nephew", "branch": 1, "title": "👦 Sobrino con Cubo (Auto)", "desc": "Persigue bichos por la arena y los golpea solo SIN gastar tu Stamina", "base_cost": 18.0, "cost_mult": 1.65, "max_lvl": 5, "req": "crab_spawn_rate"},
+	{"id": "auto_seagull", "branch": 1, "title": "🐦 Gaviota Amaestrada (Auto)", "desc": "Vuela hacia las monedas sueltas (salvándolas de la ola) y las recoge", "base_cost": 20.0, "cost_mult": 1.65, "max_lvl": 5, "req": "crab_spawn_rate"},
+	{"id": "crab_trap", "branch": 1, "title": "🕸️ Nasa de Cangrejos (Auto)", "desc": "Coloca redes en la orilla que ralentizan un 50% y dañan por segundo", "base_cost": 24.0, "cost_mult": 1.7, "max_lvl": 5, "req": "auto_nephew"},
 	{"id": "unlock_tractor", "branch": 1, "title": "🚜 Tractor Limpia-Playas", "desc": "Mejora el Tractor [ESPACIO] y su velocidad de barrido", "base_cost": 25.0, "cost_mult": 1.8, "max_lvl": 5, "req": "crab_spawn_rate"},
 	{"id": "tractor_cooldown", "branch": 1, "title": "⛽ Motor Turbo Tractor", "desc": "-1.8s al tiempo de recarga del Tractor", "base_cost": 30.0, "cost_mult": 1.7, "max_lvl": 5, "req": "unlock_tractor"},
 
