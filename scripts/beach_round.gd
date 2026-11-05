@@ -1,6 +1,6 @@
 extends Node2D
 ## Escena principal de la ronda en la playa ("La Orilla")
-## Controla: Pala (Clic Izq), Cubo (Clic Der), Rastrillo (Imán al mover ratón), Tractor y Fauna Marina.
+## Controla: Pala (Clic Izq), Cubo (Clic Der), Rastrillo (Imán), Tractor, Fauna Marina y Olas Dinámicas.
 
 var current_stamina: float = 100.0
 var max_stamina: float = 100.0
@@ -24,6 +24,15 @@ var tractor_x: float = -150.0
 var spawn_timer: float = 0.0
 var wave_time: float = 0.0
 
+# --- Sistema de Olas Dinámicas (Issue #4) ---
+var tide_timer: float = 9.0
+var tide_interval: float = 10.0
+var surge_active: bool = false
+var surge_progress: float = 0.0
+var surge_spawned_fauna: bool = false
+var current_wave_y: float = 610.0
+var wet_sand_alpha: float = 0.0
+
 func _ready() -> void:
 	start_new_round()
 
@@ -34,6 +43,10 @@ func start_new_round() -> void:
 	crabs.clear()
 	coins.clear()
 	floating_texts.clear()
+	tide_timer = 8.5
+	surge_active = false
+	surge_progress = 0.0
+	wet_sand_alpha = 0.0
 	# Spawnear primeros bichos al empezar el día
 	for i in range(4):
 		spawn_crab("crab")
@@ -42,6 +55,7 @@ func start_new_round() -> void:
 func _process(delta: float) -> void:
 	wave_time += delta
 	if round_active:
+		_update_dynamic_waves(delta)
 		_update_spawner(delta)
 		_update_crabs(delta)
 		_update_coins_and_rake(delta)
@@ -64,6 +78,51 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	if event is InputEventKey and event.pressed and event.keycode == KEY_SPACE:
 		_use_tractor()
+
+# --- Sistema de Olas Dinámicas (Issue #4) ---
+
+func _update_dynamic_waves(delta: float) -> void:
+	if wet_sand_alpha > 0.0 and not surge_active:
+		wet_sand_alpha = maxf(0.0, wet_sand_alpha - delta * 0.18)
+
+	if not surge_active:
+		current_wave_y = 610.0 + sin(wave_time * 2.2) * 16.0
+		tide_timer -= delta
+		if tide_timer <= 0.0:
+			surge_active = true
+			surge_progress = 0.0
+			surge_spawned_fauna = false
+			wet_sand_alpha = 0.65
+			_spawn_text(Vector2(540, 290), "🌊 ¡SUBE LA MAREA!", Color.AQUA)
+	else:
+		# La ola sube hasta y = 340 y luego baja suavemente
+		surge_progress += delta * 1.35
+		var s: float = sin(minf(surge_progress, PI))
+		current_wave_y = 610.0 - (s * 270.0)
+
+		# Arrastrar monedas no recogidas que toque la espuma de la ola
+		var washed_count: int = 0
+		for i in range(coins.size() - 1, -1, -1):
+			if coins[i]["pos"].y >= current_wave_y + 8.0:
+				coins[i]["pos"].y += 220.0 * delta
+				# Si la ola está bajando o la moneda ya se hundió en el agua profunda, se pierde
+				if surge_progress > PI * 0.55 or coins[i]["pos"].y > 650.0:
+					coins.remove_at(i)
+					washed_count += 1
+		if washed_count > 0:
+			_spawn_text(Vector2(560, current_wave_y - 20.0), "🌊 ¡La ola se llevó %d moneda(s)!" % washed_count, Color.ORANGE_RED)
+
+		# En el pico de la ola, dejar nuevas Almejas y bichos en la orilla
+		if not surge_spawned_fauna and surge_progress >= PI * 0.5:
+			surge_spawned_fauna = true
+			spawn_crab("clam")
+			spawn_crab("clam")
+			spawn_crab()
+			_spawn_text(Vector2(500, 380), "🐚 ¡La ola trajo nuevas Coquinas a la arena!", Color.AQUAMARINE)
+
+		if surge_progress >= PI:
+			surge_active = false
+			tide_timer = tide_interval
 
 # --- Mecánicas de Herramientas ---
 
@@ -226,7 +285,7 @@ func spawn_crab(forced_kind: String = "") -> void:
 	if kind == "clam":
 		crabs.append({
 			"kind": "clam",
-			"pos": Vector2(randf_range(120, 1160), randf_range(430, 565)),
+			"pos": Vector2(randf_range(120, 1160), randf_range(380, 565)),
 			"vel": Vector2.ZERO,
 			"hp": 22.0,
 			"max_hp": 22.0,
@@ -322,11 +381,20 @@ func _on_next_day_pressed() -> void:
 
 func _draw() -> void:
 	var font: Font = ThemeDB.fallback_font
-	# 1. Arena de la playa y Orilla con ola animada
+	# 1. Arena de la playa + Arena húmeda + Orilla con olas dinámicas (Issue #4)
 	draw_rect(Rect2(0, 0, 1280, 720), Color("#f4d58d"))
-	var wave_y: float = 610.0 + sin(wave_time * 2.2) * 18.0
-	draw_rect(Rect2(0, wave_y, 1280, 720 - wave_y), Color("#2ec4b6"))
-	draw_line(Vector2(0, wave_y), Vector2(1280, wave_y), Color.WHITE, 4.0)
+	if wet_sand_alpha > 0.0:
+		draw_rect(Rect2(0, 340, 1280, 380), Color(0.76, 0.62, 0.35, wet_sand_alpha * 0.55))
+
+	# Aviso visual antes de que suba la ola grande
+	if not surge_active and tide_timer <= 2.5 and round_active:
+		draw_line(Vector2(0, 340), Vector2(1280, 340), Color(0.18, 0.77, 0.71, 0.55), 2.0)
+		draw_string(font, Vector2(450, 332), "🌊 ¡ALERTA DE MAREA EN %.1fs! (Arrastrará monedas hasta esta línea)" % tide_timer, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color("#005f73"))
+
+	# Agua de la ola actual
+	draw_rect(Rect2(0, current_wave_y, 1280, 720 - current_wave_y), Color("#2ec4b6"))
+	draw_line(Vector2(0, current_wave_y), Vector2(1280, current_wave_y), Color.WHITE, 5.0)
+	draw_line(Vector2(0, current_wave_y + 12), Vector2(1280, current_wave_y + 12), Color(1, 1, 1, 0.45), 2.5)
 
 	# 2. Monedas en la arena
 	for c in coins:
@@ -350,7 +418,6 @@ func _draw() -> void:
 			draw_rect(Rect2(p.x - 20, p.y + 22, 40 * bury_ratio, 5), Color.ORANGE)
 		elif kind == "octopus":
 			var col: Color = Color.WHITE if flash else Color("#9b5de5")
-			# Tentáculos animados alrededor del Pulpo Turista
 			for t in range(6):
 				var angle: float = (TAU / 6.0) * t + sin(wave_time * 3.5 + t) * 0.25
 				var t_pos: Vector2 = p + Vector2(cos(angle), sin(angle)) * 34.0
@@ -391,7 +458,7 @@ func _draw() -> void:
 	draw_rect(Rect2(24, 20, 280, 26), Color(0.2, 0.2, 0.2))
 	draw_rect(Rect2(24, 20, 280 * stam_ratio, 26), Color("#ff9f1c"))
 	draw_string(font, Vector2(34, 39), "☀️ STAMINA: %d / %d" % [int(current_stamina), int(max_stamina)], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.WHITE)
-	draw_string(font, Vector2(24, 72), "Clic Izq: Pala | Clic Der: Cubo (%.1fs) | Espacio: Tractor (%.1fs) | Mover ratón: Rastrillo" % [bucket_cooldown, tractor_cooldown], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.LIGHT_GRAY)
+	draw_string(font, Vector2(24, 72), "Clic Izq: Pala | Clic Der: Cubo (%.1fs) | Espacio: Tractor (%.1fs) | Ola en: %.1fs" % [bucket_cooldown, tractor_cooldown, tide_timer if not surge_active else 0.0], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.LIGHT_GRAY)
 
 	var c_text: String = "💶 %.1f EUR  |  💵 %.1f USD  |  💷 %.1f GBP  |  🪙 %.1f PEN" % [
 		GameState.currencies["EUR"], GameState.currencies["USD"], GameState.currencies["GBP"], GameState.currencies["PEN"]
