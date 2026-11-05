@@ -1,6 +1,6 @@
-[gd_scene load_steps=2 format=3 uid="uid://c6beachround01"]
+[gd_scene format=3 uid="uid://cn6ik2seqlh2w"]
 
-[ext_resource type="Script" path="res://scripts/beach_round.gd" id="1_beach"]
+[ext_resource type="Script" uid="uid://pic0v5wx5gjm" path="res://scripts/beach_round.gd" id="1_beach"]
 
-[node name="BeachRound" type="Node2D"]
+[node name="BeachRound" type="Node2D" unique_id=947572827]
 script = ExtResource("1_beach")

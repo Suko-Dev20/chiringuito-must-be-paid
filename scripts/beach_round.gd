@@ -210,12 +210,8 @@ func _spawn_text(pos: Vector2, text: String, col: Color) -> void:
 	floating_texts.append({"pos": pos, "text": text, "color": col, "ttl": 0.85})
 
 func _on_next_day_pressed() -> void:
-	# Convertimos automáticamente divisas extranjeras en la caseta y avanzamos de día
-	var gained: float = GameState.exchange_all_to_eur()
-	GameState.current_day += 1
-	start_new_round()
-	if gained > 0.0:
-		_spawn_text(Vector2(640, 300), "💱 Caseta de Cambio: +%.1f €" % gained, Color.GOLD)
+	# Pasamos a la escena Entre Rondas (Caseta de Cambio + Chiringuito + Mejoras)
+	get_tree().change_scene_to_file("res://scenes/main/between_days.tscn")
 
 # --- Renderizado Visual (Prototipo sin depender de imágenes externas) ---
 
@@ -281,4 +277,4 @@ func _draw() -> void:
 	if not round_active:
 		draw_rect(Rect2(340, 240, 600, 180), Color(0.05, 0.08, 0.12, 0.92))
 		draw_string(font, Vector2(420, 305), "🏖️ ¡DÍA TERMINADO! Te has quedado sin Stamina.", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color.WHITE)
-		draw_string(font, Vector2(395, 355), "Pulsa [ESPACIO] para cambiar divisas a € y empezar el siguiente día", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.GOLD)
+		draw_string(font, Vector2(400, 355), "Pulsa [ESPACIO] para ir al Paseo Marítimo (Cambio y Chiringuito)", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.GOLD)
