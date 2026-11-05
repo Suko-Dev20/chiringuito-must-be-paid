@@ -1,10 +1,12 @@
 extends Node
 ## Estado global del juego (Autoload: GameState)
-## Equivale a tu Store global (Redux / Zustand / Pinia) en desarrollo web.
+## Equivale a tu Store global (Redux / Zustand / Pinia) + persistencia en user://savegame.json.
 
 signal currencies_updated
 signal stamina_changed(current: float, maximum: float)
 signal day_changed(current_day: int, bill_due_day: int)
+
+const SAVE_PATH: String = "user://savegame.json"
 
 # --- Ciclo y Facturas del Chiringuito ---
 var current_day: int = 1
@@ -44,7 +46,7 @@ var prestige_upgrades: Dictionary = {
 }
 
 var prestige_catalog: Array[Dictionary] = [
-	{"id": "sunscreen_stamina", "title": "🧴 Crema Solar Factor 50", "desc": "+20 Stamina máxima PERMANente en todos los veraneos", "base_cost": 1, "cost_step": 1, "max_lvl": 10},
+	{"id": "sunscreen_stamina", "title": "🧴 Crema Solar Factor 50", "desc": "+20 Stamina máxima PERMANENTE en todos los veraneos", "base_cost": 1, "cost_step": 1, "max_lvl": 10},
 	{"id": "starting_euros", "title": "💶 Paga de los Abuelos", "desc": "Empiezas cada nuevo veraneo con +15 € en la cartera", "base_cost": 1, "cost_step": 1, "max_lvl": 10},
 	{"id": "permanent_damage", "title": "💪 Brazo de Socorrista", "desc": "+25% Multiplicador de Daño PERMANENTE con Pala y Cubo", "base_cost": 2, "cost_step": 1, "max_lvl": 8},
 	{"id": "waiter_discount", "title": "🍹 Amigo del Camarero", "desc": "-10% de descuento PERMANENTE en todas las cuentas del Chiringuito", "base_cost": 2, "cost_step": 2, "max_lvl": 5}
@@ -105,6 +107,71 @@ var upgrade_catalog: Array[Dictionary] = [
 	{"id": "exchange_rate_boost", "branch": 3, "title": "💱 Caseta Sin Comisiones", "desc": "+15% al valor en Euros (€) al cambiar USD, GBP y PEN", "base_cost": 20.0, "cost_mult": 1.65, "max_lvl": 6, "req": "tourist_currencies"}
 ]
 
+func _ready() -> void:
+	load_game()
+
+# --- Sistema de Guardado y Carga Automática (Issue #7) ---
+
+func save_game() -> void:
+	var data: Dictionary = {
+		"version": 1,
+		"current_day": current_day,
+		"current_bill_index": current_bill_index,
+		"currencies": currencies,
+		"upgrades": upgrades,
+		"golden_shells": golden_shells,
+		"prestige_upgrades": prestige_upgrades
+	}
+	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if file:
+		file.store_string(JSON.stringify(data, "\t"))
+		file.close()
+
+func load_game() -> bool:
+	if not FileAccess.file_exists(SAVE_PATH):
+		return false
+	var file := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	if not file:
+		return false
+	var raw_text: String = file.get_as_text()
+	file.close()
+
+	var parsed: Variant = JSON.parse_string(raw_text)
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return false
+
+	var data: Dictionary = parsed
+	current_day = int(data.get("current_day", 1))
+	current_bill_index = int(data.get("current_bill_index", 0))
+	golden_shells = int(data.get("golden_shells", 0))
+
+	if data.has("currencies") and typeof(data["currencies"]) == TYPE_DICTIONARY:
+		for k in currencies.keys():
+			if data["currencies"].has(k):
+				currencies[k] = float(data["currencies"][k])
+
+	if data.has("upgrades") and typeof(data["upgrades"]) == TYPE_DICTIONARY:
+		for k in upgrades.keys():
+			if data["upgrades"].has(k):
+				upgrades[k] = int(data["upgrades"][k])
+
+	if data.has("prestige_upgrades") and typeof(data["prestige_upgrades"]) == TYPE_DICTIONARY:
+		for k in prestige_upgrades.keys():
+			if data["prestige_upgrades"].has(k):
+				prestige_upgrades[k] = int(data["prestige_upgrades"][k])
+
+	return true
+
+func delete_save_and_reset_all() -> void:
+	if FileAccess.file_exists(SAVE_PATH):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
+	golden_shells = 0
+	for k in prestige_upgrades.keys():
+		prestige_upgrades[k] = 0
+	reset_run()
+
+# --- Compras del Árbol de Habilidades ---
+
 func get_upgrade_cost(id: String) -> float:
 	for item in upgrade_catalog:
 		if item["id"] == id:
@@ -131,6 +198,7 @@ func buy_upgrade(id: String) -> bool:
 			currencies["EUR"] = snappedf(currencies["EUR"] - cost, 0.1)
 			upgrades[id] = lvl + 1
 			currencies_updated.emit()
+			save_game()
 			return true
 	return false
 
@@ -154,6 +222,7 @@ func buy_prestige_upgrade(id: String) -> bool:
 				return false
 			golden_shells -= cost
 			prestige_upgrades[id] = lvl + 1
+			save_game()
 			return true
 	return false
 
@@ -163,6 +232,7 @@ func calculate_prestige_reward() -> int:
 func award_bankruptcy_shells() -> int:
 	var earned: int = calculate_prestige_reward()
 	golden_shells += earned
+	save_game()
 	return earned
 
 # --- Estadísticas Calculadas Dinámicamente ---
@@ -252,8 +322,9 @@ func pay_current_bill() -> bool:
 		return false
 	currencies["EUR"] = snappedf(currencies["EUR"] - cost, 0.1)
 	current_bill_index += 1
-	golden_shells += 1 # +1 Concha Dorada de premio por cada factura superada
+	golden_shells += 1
 	currencies_updated.emit()
+	save_game()
 	return true
 
 func reset_run() -> void:
@@ -261,11 +332,11 @@ func reset_run() -> void:
 	current_bill_index = 0
 	for code in currencies.keys():
 		currencies[code] = 0.0
-	# Aplicamos la mejora permanente "Paga de los Abuelos"
 	currencies["EUR"] = prestige_upgrades["starting_euros"] * 15.0
 	for upg in upgrades.keys():
 		upgrades[upg] = 0
 	currencies_updated.emit()
+	save_game()
 
 func add_currency(code: String, amount: float) -> void:
 	if not currencies.has(code):
@@ -283,4 +354,5 @@ func exchange_all_to_eur() -> float:
 			currencies[code] = 0.0
 	currencies["EUR"] += snappedf(gained_eur, 0.1)
 	currencies_updated.emit()
+	save_game()
 	return gained_eur
