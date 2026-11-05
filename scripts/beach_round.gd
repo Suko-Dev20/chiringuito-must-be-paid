@@ -1,6 +1,6 @@
 extends Node2D
 ## Escena principal de la ronda en la playa ("La Orilla")
-## Controla: Pala (Clic Izq), Cubo (Clic Der), Rastrillo (Imán al mover ratón) y Tractor.
+## Controla: Pala (Clic Izq), Cubo (Clic Der), Rastrillo (Imán al mover ratón), Tractor y Fauna Marina.
 
 var current_stamina: float = 100.0
 var max_stamina: float = 100.0
@@ -34,9 +34,10 @@ func start_new_round() -> void:
 	crabs.clear()
 	coins.clear()
 	floating_texts.clear()
-	# Spawnear primeros cangrejos al empezar el día
+	# Spawnear primeros bichos al empezar el día
 	for i in range(4):
-		spawn_crab()
+		spawn_crab("crab")
+	spawn_crab("clam")
 
 func _process(delta: float) -> void:
 	wave_time += delta
@@ -89,7 +90,7 @@ func _perform_strike(pos: Vector2, radius: float, base_dmg: float, stamina_cost:
 		actual_radius *= 1.6
 		_spawn_text(pos + Vector2(0, -55), "🚀 ¡COHETE TRICOLOR! Onda Expansiva", Color.DEEP_PINK)
 
-	# Buscar cuántos cangrejos hay dentro del golpe (para la subrama de Multigolpe)
+	# Buscar cuántos bichos hay dentro del golpe (para la subrama de Multigolpe)
 	var hit_indices: Array[int] = []
 	for i in range(crabs.size()):
 		if crabs[i]["pos"].distance_to(pos) <= actual_radius + crabs[i]["radius"]:
@@ -120,15 +121,39 @@ func _perform_strike(pos: Vector2, radius: float, base_dmg: float, stamina_cost:
 		_spawn_text(Vector2(640, 320), "¡AGOTADO POR EL SOL! Fin del Día", Color.ORANGE_RED)
 
 func _on_crab_caught(crab: Dictionary) -> void:
-	# Soltar monedas de turistas en la arena (mejorable con "Playa Internacional")
+	# Soltar monedas de turistas en la arena según el tipo de fauna marina y "Playa Internacional"
 	var extra_drops: int = GameState.upgrades["tourist_currencies"]
-	var drops: int = randi_range(2, 4) + int(extra_drops / 2.0)
-	var val_boost: float = 1.0 + (extra_drops * 0.25)
+	var kind: String = crab.get("kind", "crab")
+	var base_min: int = 2
+	var base_max: int = 4
+	var kind_val_mult: float = 1.0
+	var spread: float = 35.0
+
+	if kind == "clam":
+		base_min = 3
+		base_max = 5
+		kind_val_mult = 1.6
+		_spawn_text(crab["pos"] + Vector2(0, -32), "🐚 ¡Coquina desenterrada!", Color.AQUA)
+	elif kind == "octopus":
+		base_min = 7
+		base_max = 10
+		kind_val_mult = 1.4
+		spread = 65.0
+		_spawn_text(crab["pos"] + Vector2(0, -45), "🐙 ¡EXPLOSIÓN DE DIVISAS TURISTAS!", Color.VIOLET)
+	elif kind == "lobster":
+		base_min = 5
+		base_max = 7
+		kind_val_mult = 3.0
+		spread = 50.0
+		_spawn_text(crab["pos"] + Vector2(0, -45), "🦞 ¡LANGOSTA DORADA! Botín x3", Color.GOLD)
+
+	var drops: int = randi_range(base_min, base_max) + int(extra_drops / 2.0)
+	var val_boost: float = (1.0 + (extra_drops * 0.25)) * kind_val_mult
 	for i in range(drops):
 		var currency_options: Array[String] = ["EUR", "USD", "GBP", "PEN"]
 		var chosen_code: String = currency_options.pick_random()
 		coins.append({
-			"pos": crab["pos"] + Vector2(randf_range(-35, 35), randf_range(-25, 25)),
+			"pos": crab["pos"] + Vector2(randf_range(-spread, spread), randf_range(-spread * 0.7, spread * 0.7)),
 			"code": chosen_code,
 			"value": randf_range(1.0, 3.0) * val_boost
 		})
@@ -176,34 +201,104 @@ func _collect_coin(c: Dictionary) -> void:
 	GameState.add_currency(c["code"], snappedf(c["value"], 0.5))
 	_spawn_text(c["pos"], "+%.1f %s" % [c["value"], c["code"]], Color.GREEN_YELLOW)
 
-# --- Spawner y Movimiento de Cangrejos ---
+# --- Spawner y Comportamientos de Fauna Marina (Issue #3) ---
 
 func _update_spawner(delta: float) -> void:
 	spawn_timer -= delta
-	var interval: float = maxf(0.35, 1.4 - (GameState.upgrades["crab_spawn_rate"] * 0.15))
-	if spawn_timer <= 0.0 and crabs.size() < 18:
+	var interval: float = maxf(0.35, 1.35 - (GameState.upgrades["crab_spawn_rate"] * 0.14))
+	if spawn_timer <= 0.0 and crabs.size() < 20:
 		spawn_crab()
 		spawn_timer = interval
 
-func spawn_crab() -> void:
-	crabs.append({
-		"pos": Vector2(randf_range(120, 1160), randf_range(160, 560)),
-		"vel": Vector2(randf_range(-95, 95), randf_range(-40, 40)),
-		"hp": 20.0,
-		"max_hp": 20.0,
-		"radius": 24.0,
-		"hit_flash": 0.0
-	})
+func spawn_crab(forced_kind: String = "") -> void:
+	var kind: String = forced_kind
+	if kind == "":
+		var roll: float = randf()
+		if roll < 0.08:
+			kind = "lobster"  # 8% Langosta Dorada (rara y veloz)
+		elif roll < 0.22:
+			kind = "octopus"  # 14% Pulpo Turista (tanque ideal para el Cubo)
+		elif roll < 0.45:
+			kind = "clam"     # 23% Almeja / Coquina (se entierra rápido)
+		else:
+			kind = "crab"     # 55% Cangrejo Común
+
+	if kind == "clam":
+		crabs.append({
+			"kind": "clam",
+			"pos": Vector2(randf_range(120, 1160), randf_range(430, 565)),
+			"vel": Vector2.ZERO,
+			"hp": 22.0,
+			"max_hp": 22.0,
+			"radius": 20.0,
+			"hit_flash": 0.0,
+			"bury_timer": 3.8,
+			"max_bury": 3.8
+		})
+	elif kind == "octopus":
+		crabs.append({
+			"kind": "octopus",
+			"pos": Vector2(randf_range(150, 1130), randf_range(180, 500)),
+			"vel": Vector2(randf_range(-42, 42), randf_range(-28, 28)),
+			"hp": 75.0,
+			"max_hp": 75.0,
+			"radius": 38.0,
+			"hit_flash": 0.0
+		})
+	elif kind == "lobster":
+		var from_left: bool = randf() < 0.5
+		var start_x: float = 95.0 if from_left else 1185.0
+		var dir_x: float = 1.0 if from_left else -1.0
+		crabs.append({
+			"kind": "lobster",
+			"pos": Vector2(start_x, randf_range(170, 520)),
+			"vel": Vector2(235.0 * dir_x, randf_range(-25, 25)),
+			"hp": 30.0,
+			"max_hp": 30.0,
+			"radius": 26.0,
+			"hit_flash": 0.0
+		})
+	else:
+		crabs.append({
+			"kind": "crab",
+			"pos": Vector2(randf_range(120, 1160), randf_range(160, 560)),
+			"vel": Vector2(randf_range(-95, 95), randf_range(-40, 40)),
+			"hp": 20.0,
+			"max_hp": 20.0,
+			"radius": 24.0,
+			"hit_flash": 0.0
+		})
 
 func _update_crabs(delta: float) -> void:
-	for c in crabs:
+	for i in range(crabs.size() - 1, -1, -1):
+		var c: Dictionary = crabs[i]
+		var kind: String = c.get("kind", "crab")
 		c["pos"] += c["vel"] * delta
-		if c["pos"].x < 90.0 or c["pos"].x > 1190.0:
-			c["vel"].x *= -1.0
-		if c["pos"].y < 140.0 or c["pos"].y > 580.0:
-			c["vel"].y *= -1.0
+
 		if c["hit_flash"] > 0.0:
 			c["hit_flash"] = maxf(0.0, c["hit_flash"] - delta)
+
+		# Comportamiento específico de Almeja / Coquina (se entierra en la arena)
+		if kind == "clam":
+			c["bury_timer"] -= delta
+			if c["bury_timer"] <= 0.0:
+				_spawn_text(c["pos"], "🐚 ¡Se enterró!", Color.LIGHT_SKY_BLUE)
+				crabs.remove_at(i)
+				continue
+
+		# Comportamiento de Langosta Dorada (cruza la playa y escapa si llega al otro borde)
+		if kind == "lobster":
+			if c["pos"].x < 70.0 or c["pos"].x > 1210.0:
+				_spawn_text(c["pos"].clamp(Vector2(100, 150), Vector2(1180, 560)), "🦞 ¡La Langosta escapó!", Color.ORANGE)
+				crabs.remove_at(i)
+				continue
+			if c["pos"].y < 140.0 or c["pos"].y > 580.0:
+				c["vel"].y *= -1.0
+		else:
+			if c["pos"].x < 90.0 or c["pos"].x > 1190.0:
+				c["vel"].x *= -1.0
+			if c["pos"].y < 140.0 or c["pos"].y > 580.0:
+				c["vel"].y *= -1.0
 
 func _update_cooldowns(delta: float) -> void:
 	bucket_cooldown = maxf(0.0, bucket_cooldown - delta)
@@ -239,18 +334,46 @@ func _draw() -> void:
 		draw_circle(c["pos"], 11.0, col)
 		draw_string(font, c["pos"] + Vector2(-12, 4), c["code"], HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color.BLACK)
 
-	# 3. Cangrejos
+	# 3. Fauna Marina (Cangrejos, Almejas, Pulpos Turistas y Langostas Doradas)
 	for crab in crabs:
 		var p: Vector2 = crab["pos"]
-		var body_col: Color = Color.WHITE if crab["hit_flash"] > 0.0 else Color("#e63946")
-		# Pinzas y cuerpo
-		draw_circle(p + Vector2(-20, -14), 8.0, body_col)
-		draw_circle(p + Vector2(20, -14), 8.0, body_col)
-		draw_circle(p, crab["radius"], body_col)
-		# Barra de vida del cangrejo
+		var kind: String = crab.get("kind", "crab")
+		var flash: bool = crab["hit_flash"] > 0.0
+
+		if kind == "clam":
+			var col: Color = Color.WHITE if flash else Color("#48cae4")
+			draw_circle(p, crab["radius"], col)
+			draw_arc(p, crab["radius"], PI, TAU, 16, Color("#0077b6"), 3.0)
+			# Barra de tiempo antes de que se entierre
+			var bury_ratio: float = clampf(crab["bury_timer"] / crab["max_bury"], 0.0, 1.0)
+			draw_rect(Rect2(p.x - 20, p.y + 22, 40, 5), Color(0, 0, 0, 0.5))
+			draw_rect(Rect2(p.x - 20, p.y + 22, 40 * bury_ratio, 5), Color.ORANGE)
+		elif kind == "octopus":
+			var col: Color = Color.WHITE if flash else Color("#9b5de5")
+			# Tentáculos animados alrededor del Pulpo Turista
+			for t in range(6):
+				var angle: float = (TAU / 6.0) * t + sin(wave_time * 3.5 + t) * 0.25
+				var t_pos: Vector2 = p + Vector2(cos(angle), sin(angle)) * 34.0
+				draw_circle(t_pos, 10.0, col)
+			draw_circle(p, crab["radius"], col)
+			draw_string(font, p + Vector2(-14, 6), "🐙", HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color.WHITE)
+		elif kind == "lobster":
+			var col: Color = Color.WHITE if flash else Color("#ffb703")
+			draw_circle(p + Vector2(-14, 0), 16.0, col)
+			draw_circle(p + Vector2(14, 0), 16.0, col)
+			draw_circle(p, crab["radius"], col)
+			draw_arc(p, crab["radius"] + 3.0, 0, TAU, 24, Color.GOLD, 2.0)
+		else:
+			var body_col: Color = Color.WHITE if flash else Color("#e63946")
+			draw_circle(p + Vector2(-20, -14), 8.0, body_col)
+			draw_circle(p + Vector2(20, -14), 8.0, body_col)
+			draw_circle(p, crab["radius"], body_col)
+
+		# Barra de vida
 		var hp_ratio: float = clampf(crab["hp"] / crab["max_hp"], 0.0, 1.0)
-		draw_rect(Rect2(p.x - 22, p.y - 36, 44, 6), Color(0, 0, 0, 0.6))
-		draw_rect(Rect2(p.x - 22, p.y - 36, 44 * hp_ratio, 6), Color.LIME_GREEN)
+		var bar_w: float = crab["radius"] * 1.8
+		draw_rect(Rect2(p.x - bar_w * 0.5, p.y - crab["radius"] - 14, bar_w, 6), Color(0, 0, 0, 0.6))
+		draw_rect(Rect2(p.x - bar_w * 0.5, p.y - crab["radius"] - 14, bar_w * hp_ratio, 6), Color.LIME_GREEN)
 
 	# 4. Tractor Limpia-Playas
 	if tractor_active:
