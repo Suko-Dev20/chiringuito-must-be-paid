@@ -1,12 +1,16 @@
 extends Node
 ## Estado global del juego (Autoload: GameState)
-## Equivale a tu Store global (Redux / Zustand / Pinia) + persistencia en user://savegame.json.
+## Incluye Store Global, Guardado/Carga en user://savegame.json y Sintetizador de Audio con Pitch variable.
 
 signal currencies_updated
 signal stamina_changed(current: float, maximum: float)
 signal day_changed(current_day: int, bill_due_day: int)
 
 const SAVE_PATH: String = "user://savegame.json"
+
+# --- Pool de Audio Procedural con Variación de Pitch (Issue #8) ---
+var sfx_streams: Dictionary = {}
+var sfx_players: Array[AudioStreamPlayer] = []
 
 # --- Ciclo y Facturas del Chiringuito ---
 var current_day: int = 1
@@ -25,10 +29,9 @@ var currencies: Dictionary = {
 	"EUR": 0.0,
 	"USD": 0.0,
 	"GBP": 0.0,
-	"PEN": 0.0 # Soles
+	"PEN": 0.0
 }
 
-# Tasa de cambio base a Euros (mejorable en la Rama 4)
 var base_exchange_rates: Dictionary = {
 	"USD": 0.85,
 	"GBP": 1.15,
@@ -39,10 +42,10 @@ var base_exchange_rates: Dictionary = {
 var golden_shells: int = 0
 
 var prestige_upgrades: Dictionary = {
-	"sunscreen_stamina": 0, # +20 Stamina máxima permanente por nivel
-	"starting_euros": 0,    # +15 € iniciales al empezar cada nuevo veraneo
-	"permanent_damage": 0,  # +25% Daño permanente con Pala y Cubo
-	"waiter_discount": 0    # -10% descuento permanente en facturas del Chiringuito
+	"sunscreen_stamina": 0,
+	"starting_euros": 0,
+	"permanent_damage": 0,
+	"waiter_discount": 0
 }
 
 var prestige_catalog: Array[Dictionary] = [
@@ -54,18 +57,15 @@ var prestige_catalog: Array[Dictionary] = [
 
 # --- Niveles del Árbol de Habilidades (Por Run) ---
 var upgrades: Dictionary = {
-	# Rama 1: Herramientas y Críticos
 	"shovel_damage": 0,
 	"shovel_radius": 0,
 	"crit_chance": 0,
 	"multi_hit_bonus": 0,
 	"unlock_bucket": 0,
 	"rake_magnet": 0,
-	# Rama 2: Playa y Tractor
 	"crab_spawn_rate": 0,
 	"unlock_tractor": 0,
 	"tractor_cooldown": 0,
-	# Rama 3: Kiosco de Helados y Resistencia (Issue #5)
 	"max_stamina": 0,
 	"global_luck": 0,
 	"ice_cream_foot": 0,
@@ -73,12 +73,10 @@ var upgrades: Dictionary = {
 	"ice_cream_vampire": 0,
 	"ice_cream_magnum": 0,
 	"ice_cream_shark": 0,
-	# Rama 4: Turismo y Divisas
 	"tourist_currencies": 0,
 	"exchange_rate_boost": 0
 }
 
-# Catálogo de mejoras del Árbol de Habilidades (4 Ramas)
 var upgrade_catalog: Array[Dictionary] = [
 	# Rama 1: Herramientas y Críticos (branch = 0)
 	{"id": "shovel_damage", "branch": 0, "title": "🏖️ Pala Reforzada", "desc": "+5 Daño base con la pala", "base_cost": 8.0, "cost_mult": 1.5, "max_lvl": 10, "req": ""},
@@ -108,7 +106,55 @@ var upgrade_catalog: Array[Dictionary] = [
 ]
 
 func _ready() -> void:
+	_init_procedural_audio()
 	load_game()
+
+# --- Sintetizador de Sonidos Procedurales con Variación de Pitch (Issue #8) ---
+
+func _init_procedural_audio() -> void:
+	for i in range(10):
+		var p := AudioStreamPlayer.new()
+		p.volume_db = -7.0
+		add_child(p)
+		sfx_players.append(p)
+
+	sfx_streams["hit"] = _make_tone(190.0, 75.0, 0.08, 0.35)
+	sfx_streams["bucket"] = _make_tone(130.0, 42.0, 0.18, 0.55)
+	sfx_streams["crit"] = _make_tone(520.0, 880.0, 0.12, 0.2)
+	sfx_streams["coin"] = _make_tone(780.0, 1180.0, 0.07, 0.05)
+	sfx_streams["buy"] = _make_tone(440.0, 660.0, 0.14, 0.1)
+	sfx_streams["tractor"] = _make_tone(95.0, 110.0, 0.32, 0.6)
+
+func _make_tone(f_start: float, f_end: float, duration: float, noise_mix: float) -> AudioStreamWAV:
+	var rate: int = 22050
+	var count: int = int(rate * duration)
+	var data := PackedByteArray()
+	data.resize(count)
+	var phase: float = 0.0
+	for i in range(count):
+		var t: float = float(i) / float(count)
+		var env: float = pow(1.0 - t, 1.4)
+		var freq: float = lerpf(f_start, f_end, t)
+		phase += TAU * freq / float(rate)
+		var wave_val: float = sin(phase) * (1.0 - noise_mix) + randf_range(-1.0, 1.0) * noise_mix
+		var sample_int: int = int(clampf(wave_val * env * 95.0, -120.0, 120.0))
+		data[i] = sample_int & 0xFF
+
+	var stream := AudioStreamWAV.new()
+	stream.format = AudioStreamWAV.FORMAT_8_BITS
+	stream.mix_rate = rate
+	stream.data = data
+	return stream
+
+func play_sfx(kind: String, min_pitch: float = 0.88, max_pitch: float = 1.16) -> void:
+	if not sfx_streams.has(kind):
+		return
+	for p in sfx_players:
+		if not p.playing:
+			p.stream = sfx_streams[kind]
+			p.pitch_scale = randf_range(min_pitch, max_pitch)
+			p.play()
+			return
 
 # --- Sistema de Guardado y Carga Automática (Issue #7) ---
 
@@ -198,6 +244,7 @@ func buy_upgrade(id: String) -> bool:
 			currencies["EUR"] = snappedf(currencies["EUR"] - cost, 0.1)
 			upgrades[id] = lvl + 1
 			currencies_updated.emit()
+			play_sfx("buy")
 			save_game()
 			return true
 	return false
@@ -222,6 +269,7 @@ func buy_prestige_upgrade(id: String) -> bool:
 				return false
 			golden_shells -= cost
 			prestige_upgrades[id] = lvl + 1
+			play_sfx("buy", 0.95, 1.25)
 			save_game()
 			return true
 	return false
@@ -324,6 +372,7 @@ func pay_current_bill() -> bool:
 	current_bill_index += 1
 	golden_shells += 1
 	currencies_updated.emit()
+	play_sfx("buy", 1.05, 1.25)
 	save_game()
 	return true
 
@@ -354,5 +403,6 @@ func exchange_all_to_eur() -> float:
 			currencies[code] = 0.0
 	currencies["EUR"] += snappedf(gained_eur, 0.1)
 	currencies_updated.emit()
+	play_sfx("coin", 0.9, 1.1)
 	save_game()
 	return gained_eur

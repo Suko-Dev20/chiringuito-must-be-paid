@@ -1,6 +1,6 @@
 extends Node2D
 ## Escena principal de la ronda en la playa ("La Orilla")
-## Controla: Pala, Cubo, Rastrillo, Tractor, Fauna Marina, Olas Dinámicas y Kiosco de Helados (Suerte).
+## Incluye: Herramientas, Fauna Marina, Olas Dinámicas, Kiosco de Helados y Game Feel (Juice/SFX/Shake/Partículas).
 
 var current_stamina: float = 100.0
 var max_stamina: float = 100.0
@@ -13,10 +13,16 @@ var tractor_cooldown: float = 0.0
 var tractor_max_cooldown: float = 12.0
 var magnum_timer: float = 1.0
 
-# Contenedores en memoria de los bichos y monedas activos en la arena
+# Contenedores en memoria de los bichos, monedas y efectos ("Juice" - Issue #8)
 var crabs: Array[Dictionary] = []
 var coins: Array[Dictionary] = []
 var floating_texts: Array[Dictionary] = []
+var particles: Array[Dictionary] = []
+var shockwaves: Array[Dictionary] = []
+
+# Screen Shake y Animación del Cursor
+var shake_strength: float = 0.0
+var cursor_swing_anim: float = 0.0
 
 # Animación del Tractor Limpia-Playas
 var tractor_active: bool = false
@@ -44,6 +50,9 @@ func start_new_round() -> void:
 	crabs.clear()
 	coins.clear()
 	floating_texts.clear()
+	particles.clear()
+	shockwaves.clear()
+	shake_strength = 0.0
 	tide_timer = 8.5
 	surge_active = false
 	surge_progress = 0.0
@@ -63,6 +72,7 @@ func _process(delta: float) -> void:
 		_update_magnum_ice_cream(delta)
 		_update_cooldowns(delta)
 	_update_tractor(delta)
+	_update_juice_effects(delta)
 	_update_floating_texts(delta)
 	queue_redraw()
 
@@ -80,6 +90,58 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	if event is InputEventKey and event.pressed and event.keycode == KEY_SPACE:
 		_use_tractor()
+
+# --- Efectos de Game Feel ("Juice": Screen Shake, Partículas y Ondas - Issue #8) ---
+
+func _add_screen_shake(amount: float) -> void:
+	shake_strength = maxf(shake_strength, amount)
+
+func _spawn_particles(pos: Vector2, count: int, col: Color, speed: float = 160.0) -> void:
+	for i in range(count):
+		var angle: float = randf() * TAU
+		var spd: float = randf_range(speed * 0.35, speed)
+		particles.append({
+			"pos": pos,
+			"vel": Vector2(cos(angle), sin(angle)) * spd + Vector2(0, -60.0),
+			"col": col,
+			"size": randf_range(3.0, 6.5),
+			"ttl": randf_range(0.28, 0.55),
+			"max_ttl": 0.55
+		})
+
+func _spawn_shockwave(pos: Vector2, max_r: float, col: Color) -> void:
+	shockwaves.append({
+		"pos": pos,
+		"r": 10.0,
+		"max_r": max_r,
+		"col": col,
+		"alpha": 0.9
+	})
+
+func _update_juice_effects(delta: float) -> void:
+	if cursor_swing_anim > 0.0:
+		cursor_swing_anim = maxf(0.0, cursor_swing_anim - delta * 6.0)
+
+	if shake_strength > 0.0:
+		shake_strength = maxf(0.0, shake_strength - delta * 28.0)
+		position = Vector2(randf_range(-shake_strength, shake_strength), randf_range(-shake_strength, shake_strength))
+	else:
+		position = Vector2.ZERO
+
+	for i in range(particles.size() - 1, -1, -1):
+		var pt: Dictionary = particles[i]
+		pt["vel"].y += 380.0 * delta # Gravedad sobre la arena
+		pt["pos"] += pt["vel"] * delta
+		pt["ttl"] -= delta
+		if pt["ttl"] <= 0.0:
+			particles.remove_at(i)
+
+	for i in range(shockwaves.size() - 1, -1, -1):
+		var sw: Dictionary = shockwaves[i]
+		sw["r"] = lerpf(sw["r"], sw["max_r"], delta * 14.0)
+		sw["alpha"] -= delta * 3.2
+		if sw["alpha"] <= 0.0:
+			shockwaves.remove_at(i)
 
 # --- Sistema de Olas Dinámicas (Issue #4) ---
 
@@ -106,6 +168,7 @@ func _update_dynamic_waves(delta: float) -> void:
 			if coins[i]["pos"].y >= current_wave_y + 8.0:
 				coins[i]["pos"].y += 220.0 * delta
 				if surge_progress > PI * 0.55 or coins[i]["pos"].y > 650.0:
+					_spawn_particles(coins[i]["pos"], 5, Color.AQUA, 90.0)
 					coins.remove_at(i)
 					washed_count += 1
 		if washed_count > 0:
@@ -122,29 +185,41 @@ func _update_dynamic_waves(delta: float) -> void:
 			surge_active = false
 			tide_timer = tide_interval
 
-# --- Mecánicas de Herramientas y Helados por Suerte (Issue #5) ---
+# --- Mecánicas de Herramientas y Helados por Suerte (Issue #5 & #8) ---
 
 func _use_shovel(pos: Vector2) -> void:
+	cursor_swing_anim = 1.0
+	GameState.play_sfx("hit", 0.90, 1.15)
 	var radius: float = GameState.get_shovel_radius()
-	_perform_strike(pos, radius, GameState.get_shovel_damage(), 4.5, "Pala")
+	_perform_strike(pos, radius, GameState.get_shovel_damage(), 4.5, false)
 
 func _use_bucket(pos: Vector2) -> void:
 	if bucket_cooldown > 0.0:
 		_spawn_text(pos, "¡Cubo recargando!", Color.ORANGE)
 		return
+	cursor_swing_anim = 1.0
+	GameState.play_sfx("bucket", 0.85, 1.08)
+	_add_screen_shake(9.5)
 	bucket_cooldown = maxf(0.8, bucket_max_cooldown - (GameState.upgrades["unlock_bucket"] * 0.4))
 	var radius: float = GameState.get_shovel_radius() * (1.9 + GameState.upgrades["unlock_bucket"] * 0.15)
 	var dmg_mult: float = 1.6 + (GameState.upgrades["unlock_bucket"] * 0.35)
-	_perform_strike(pos, radius, GameState.get_shovel_damage() * dmg_mult, 9.0, "¡CUBAZO!")
+	_perform_strike(pos, radius, GameState.get_shovel_damage() * dmg_mult, 9.0, true)
 
-func _perform_strike(pos: Vector2, radius: float, base_dmg: float, stamina_cost: float, _label: String) -> void:
+func _perform_strike(pos: Vector2, radius: float, base_dmg: float, stamina_cost: float, is_bucket: bool) -> void:
 	current_stamina = maxf(0.0, current_stamina - stamina_cost)
 	
 	# 1. Helado "Cohete Tricolor" (🚀 onda expansiva con +60% de radio)
 	var actual_radius: float = radius
-	if randf() < GameState.get_rocket_ice_cream_chance():
+	var rocket_proc: bool = randf() < GameState.get_rocket_ice_cream_chance()
+	if rocket_proc:
 		actual_radius *= 1.6
+		_add_screen_shake(8.0)
 		_spawn_text(pos + Vector2(0, -55), "🚀 ¡COHETE TRICOLOR! Onda Expansiva", Color.DEEP_PINK)
+
+	# Anillo de impacto y partículas de arena al golpear
+	var ring_col: Color = Color.DEEP_PINK if rocket_proc else (Color.CYAN if is_bucket else Color(1.0, 0.85, 0.3))
+	_spawn_shockwave(pos, actual_radius, ring_col)
+	_spawn_particles(pos, 10 if is_bucket else 5, Color("#e9c46a"), 130.0)
 
 	# 2. Helado "Tiburón Azul" (🦈 reduce -2.5s el cooldown del Tractor al golpear)
 	if tractor_cooldown > 0.0 and randf() < GameState.get_shark_ice_cream_chance():
@@ -161,6 +236,10 @@ func _perform_strike(pos: Vector2, radius: float, base_dmg: float, stamina_cost:
 	var is_crit: bool = randf() < GameState.get_crit_chance() or (hit_indices.size() >= 3)
 	var final_dmg: float = base_dmg * multi_mult * (2.0 if is_crit else 1.0)
 
+	if is_crit and not hit_indices.is_empty():
+		GameState.play_sfx("crit", 0.92, 1.18)
+		_add_screen_shake(6.5)
+
 	# 3. Helado "Conde Colmillos" (🧛 en Golpe Crítico roba +5 Stamina y duplica monedas)
 	var vampire_proc: bool = false
 	if is_crit and not hit_indices.is_empty() and randf() < GameState.get_vampire_ice_cream_chance():
@@ -176,6 +255,7 @@ func _perform_strike(pos: Vector2, radius: float, base_dmg: float, stamina_cost:
 		var crab: Dictionary = crabs[idx]
 		crab["hp"] -= final_dmg
 		crab["hit_flash"] = 0.15
+		_spawn_particles(crab["pos"], 6, Color.CORAL, 140.0)
 		var dmg_text: String = "%d%s" % [int(final_dmg), " ¡CRIT!" if is_crit else ""]
 		_spawn_text(crab["pos"] + Vector2(randf_range(-15, 15), -20), dmg_text, Color.YELLOW if is_crit else Color.WHITE)
 		
@@ -193,7 +273,9 @@ func _on_crab_caught(crab: Dictionary, coin_mult: int = 1) -> void:
 	var base_min: int = 2
 	var base_max: int = 4
 	var kind_val_mult: float = 1.0
-	var spread: float = 35.0
+	var spread: float = 38.0
+
+	_spawn_particles(crab["pos"], 14, Color.GOLD if kind == "lobster" else Color.AQUAMARINE, 210.0)
 
 	if kind == "clam":
 		base_min = 3
@@ -204,13 +286,15 @@ func _on_crab_caught(crab: Dictionary, coin_mult: int = 1) -> void:
 		base_min = 7
 		base_max = 10
 		kind_val_mult = 1.4
-		spread = 65.0
+		spread = 68.0
+		_add_screen_shake(7.5)
 		_spawn_text(crab["pos"] + Vector2(0, -45), "🐙 ¡EXPLOSIÓN DE DIVISAS TURISTAS!", Color.VIOLET)
 	elif kind == "lobster":
 		base_min = 5
 		base_max = 7
 		kind_val_mult = 3.0
-		spread = 50.0
+		spread = 52.0
+		_add_screen_shake(8.0)
 		_spawn_text(crab["pos"] + Vector2(0, -45), "🦞 ¡LANGOSTA DORADA! Botín x3", Color.GOLD)
 
 	var drops: int = (randi_range(base_min, base_max) + int(extra_drops / 2.0)) * coin_mult
@@ -221,15 +305,16 @@ func _on_crab_caught(crab: Dictionary, coin_mult: int = 1) -> void:
 		coins.append({
 			"pos": crab["pos"] + Vector2(randf_range(-spread, spread), randf_range(-spread * 0.7, spread * 0.7)),
 			"code": chosen_code,
-			"value": randf_range(1.0, 3.0) * val_boost
+			"value": randf_range(1.0, 3.0) * val_boost,
+			"pop": 1.0 # Animación de salto inicial al caer en la arena
 		})
 
-	# 4. Helado "Pie Helado" (🦶 probabilidad por suerte de recuperar +7 Stamina)
+	# 4. Helado "Pie Helado"
 	if randf() < GameState.get_foot_ice_cream_chance():
 		current_stamina = minf(max_stamina, current_stamina + 7.0)
 		_spawn_text(crab["pos"] + Vector2(0, -40), "🦶 ¡Pie Helado! +7 Stamina", Color.AQUAMARINE)
 
-# 5. Helado "Bombón Magnético" (🍫 cada segundo puede absorber una moneda sola con valor x2)
+# 5. Helado "Bombón Magnético"
 func _update_magnum_ice_cream(delta: float) -> void:
 	if GameState.upgrades["ice_cream_magnum"] <= 0 or coins.is_empty():
 		return
@@ -240,6 +325,7 @@ func _update_magnum_ice_cream(delta: float) -> void:
 			var idx: int = randi() % coins.size()
 			var c: Dictionary = coins[idx]
 			c["value"] *= 2.0
+			_spawn_particles(c["pos"], 8, Color.GOLD, 120.0)
 			_spawn_text(c["pos"] + Vector2(0, -18), "🍫 ¡Bombón Magnético x2!", Color.GOLD)
 			_collect_coin(c)
 			coins.remove_at(idx)
@@ -251,9 +337,11 @@ func _update_coins_and_rake(delta: float) -> void:
 	var rake_r: float = GameState.get_rake_radius()
 	for i in range(coins.size() - 1, -1, -1):
 		var c: Dictionary = coins[i]
+		if c.get("pop", 0.0) > 0.0:
+			c["pop"] = maxf(0.0, c["pop"] - delta * 3.5)
 		var dist: float = c["pos"].distance_to(mouse_pos)
 		if dist <= rake_r:
-			c["pos"] = c["pos"].move_toward(mouse_pos, 420.0 * delta)
+			c["pos"] = c["pos"].move_toward(mouse_pos, 440.0 * delta)
 			if dist <= 18.0:
 				_collect_coin(c)
 				coins.remove_at(i)
@@ -264,11 +352,14 @@ func _use_tractor() -> void:
 	tractor_active = true
 	tractor_x = -120.0
 	tractor_cooldown = maxf(3.0, tractor_max_cooldown - (GameState.upgrades["tractor_cooldown"] * 1.8))
+	GameState.play_sfx("tractor", 0.9, 1.05)
+	_add_screen_shake(6.0)
 	_spawn_text(Vector2(640, 260), "🚜 ¡TRACTOR LIMPIA-PLAYAS EN MARCHA!", Color.GOLD)
 
 func _update_tractor(delta: float) -> void:
 	if not tractor_active:
 		return
+	_add_screen_shake(2.2)
 	var speed_bonus: float = 1.0 + (GameState.upgrades["unlock_tractor"] * 0.15)
 	tractor_x += 900.0 * speed_bonus * delta
 	for i in range(coins.size() - 1, -1, -1):
@@ -279,6 +370,8 @@ func _update_tractor(delta: float) -> void:
 		tractor_active = false
 
 func _collect_coin(c: Dictionary) -> void:
+	GameState.play_sfx("coin", 0.88, 1.24)
+	_spawn_particles(c["pos"], 5, Color.GOLD, 95.0)
 	GameState.add_currency(c["code"], snappedf(c["value"], 0.5))
 	_spawn_text(c["pos"], "+%.1f %s" % [c["value"], c["code"]], Color.GREEN_YELLOW)
 
@@ -394,13 +487,14 @@ func _spawn_text(pos: Vector2, text: String, col: Color) -> void:
 	floating_texts.append({"pos": pos, "text": text, "color": col, "ttl": 0.85})
 
 func _on_next_day_pressed() -> void:
+	GameState.save_game()
 	get_tree().change_scene_to_file("res://scenes/main/between_days.tscn")
 
-# --- Renderizado Visual (Prototipo sin depender de imágenes externas) ---
+# --- Renderizado Visual con Arte 2D Estilizado y Efectos ("Juice" - Issue #8) ---
 
 func _draw() -> void:
 	var font: Font = ThemeDB.fallback_font
-	# 1. Arena de la playa + Arena húmeda + Orilla con olas dinámicas (Issue #4)
+	# 1. Arena de la playa + Arena húmeda + Orilla con olas dinámicas
 	draw_rect(Rect2(0, 0, 1280, 720), Color("#f4d58d"))
 	if wet_sand_alpha > 0.0:
 		draw_rect(Rect2(0, 340, 1280, 380), Color(0.76, 0.62, 0.35, wet_sand_alpha * 0.55))
@@ -413,17 +507,29 @@ func _draw() -> void:
 	draw_line(Vector2(0, current_wave_y), Vector2(1280, current_wave_y), Color.WHITE, 5.0)
 	draw_line(Vector2(0, current_wave_y + 12), Vector2(1280, current_wave_y + 12), Color(1, 1, 1, 0.45), 2.5)
 
-	# 2. Monedas en la arena
-	for c in coins:
-		var col: Color = Color.GOLD if c["code"] == "EUR" else Color.LIGHT_GREEN
-		draw_circle(c["pos"], 11.0, col)
-		draw_string(font, c["pos"] + Vector2(-12, 4), c["code"], HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color.BLACK)
+	# 2. Anillos de impacto (Shockwaves)
+	for sw in shockwaves:
+		var c_sw: Color = sw["col"]
+		c_sw.a = clampf(sw["alpha"], 0.0, 1.0)
+		draw_arc(sw["pos"], sw["r"], 0, TAU, 36, c_sw, 3.5)
 
-	# 3. Fauna Marina
+	# 3. Monedas en la arena (con sombra y animación de salto al caer)
+	for c in coins:
+		var jump_y: float = sin(c.get("pop", 0.0) * PI) * -18.0
+		var cpos: Vector2 = c["pos"] + Vector2(0, jump_y)
+		draw_circle(c["pos"] + Vector2(0, 4), 10.0, Color(0, 0, 0, 0.22)) # Sombra
+		var col: Color = Color.GOLD if c["code"] == "EUR" else Color.LIGHT_GREEN
+		draw_circle(cpos, 11.5, col)
+		draw_arc(cpos, 11.5, 0, TAU, 16, Color.WHITE, 1.5)
+		draw_string(font, cpos + Vector2(-12, 4), c["code"], HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color.BLACK)
+
+	# 4. Fauna Marina con Sombras, Ojos y Detalles 2D
 	for crab in crabs:
 		var p: Vector2 = crab["pos"]
 		var kind: String = crab.get("kind", "crab")
 		var flash: bool = crab["hit_flash"] > 0.0
+		# Sombra en la arena
+		draw_circle(p + Vector2(0, crab["radius"] * 0.45), crab["radius"] * 0.9, Color(0, 0, 0, 0.22))
 
 		if kind == "clam":
 			var col: Color = Color.WHITE if flash else Color("#48cae4")
@@ -439,36 +545,55 @@ func _draw() -> void:
 				var t_pos: Vector2 = p + Vector2(cos(angle), sin(angle)) * 34.0
 				draw_circle(t_pos, 10.0, col)
 			draw_circle(p, crab["radius"], col)
-			draw_string(font, p + Vector2(-14, 6), "🐙", HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color.WHITE)
+			draw_circle(p + Vector2(-10, -6), 6.0, Color.WHITE)
+			draw_circle(p + Vector2(10, -6), 6.0, Color.WHITE)
+			draw_circle(p + Vector2(-10, -6), 3.0, Color.BLACK)
+			draw_circle(p + Vector2(10, -6), 3.0, Color.BLACK)
 		elif kind == "lobster":
 			var col: Color = Color.WHITE if flash else Color("#ffb703")
 			draw_circle(p + Vector2(-14, 0), 16.0, col)
 			draw_circle(p + Vector2(14, 0), 16.0, col)
 			draw_circle(p, crab["radius"], col)
 			draw_arc(p, crab["radius"] + 3.0, 0, TAU, 24, Color.GOLD, 2.0)
+			draw_circle(p + Vector2(-7, -7), 4.5, Color.WHITE)
+			draw_circle(p + Vector2(7, -7), 4.5, Color.WHITE)
+			draw_circle(p + Vector2(-7, -7), 2.0, Color.BLACK)
+			draw_circle(p + Vector2(7, -7), 2.0, Color.BLACK)
 		else:
 			var body_col: Color = Color.WHITE if flash else Color("#e63946")
 			draw_circle(p + Vector2(-20, -14), 8.0, body_col)
 			draw_circle(p + Vector2(20, -14), 8.0, body_col)
 			draw_circle(p, crab["radius"], body_col)
+			# Ojos del cangrejo
+			draw_circle(p + Vector2(-8, -8), 4.5, Color.WHITE)
+			draw_circle(p + Vector2(8, -8), 4.5, Color.WHITE)
+			draw_circle(p + Vector2(-8, -8), 2.0, Color.BLACK)
+			draw_circle(p + Vector2(8, -8), 2.0, Color.BLACK)
 
 		var hp_ratio: float = clampf(crab["hp"] / crab["max_hp"], 0.0, 1.0)
 		var bar_w: float = crab["radius"] * 1.8
 		draw_rect(Rect2(p.x - bar_w * 0.5, p.y - crab["radius"] - 14, bar_w, 6), Color(0, 0, 0, 0.6))
 		draw_rect(Rect2(p.x - bar_w * 0.5, p.y - crab["radius"] - 14, bar_w * hp_ratio, 6), Color.LIME_GREEN)
 
-	# 4. Tractor Limpia-Playas
+	# 5. Partículas 2D de arena, agua y chispas
+	for pt in particles:
+		var pcol: Color = pt["col"]
+		pcol.a = clampf(pt["ttl"] / pt["max_ttl"], 0.0, 1.0)
+		draw_circle(pt["pos"], pt["size"], pcol)
+
+	# 6. Tractor Limpia-Playas
 	if tractor_active:
 		draw_rect(Rect2(tractor_x, 120, 70, 480), Color(0.95, 0.75, 0.1, 0.85))
 		draw_string(font, Vector2(tractor_x + 8, 360), "🚜 TRACTOR", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.BLACK)
 
-	# 5. Círculo del cursor (Pala + Radio del Rastrillo)
+	# 7. Círculo del cursor (Pala + Radio del Rastrillo + Animación de golpe)
 	var mpos: Vector2 = get_viewport().get_mouse_position()
-	draw_arc(mpos, GameState.get_shovel_radius(), 0, TAU, 32, Color(1, 0.2, 0.2, 0.7), 2.5)
+	var swing_scale: float = 1.0 - (cursor_swing_anim * 0.18)
+	draw_arc(mpos, GameState.get_shovel_radius() * swing_scale, 0, TAU, 32, Color(1, 0.2, 0.2, 0.8), 2.8)
 	draw_arc(mpos, GameState.get_rake_radius(), 0, TAU, 32, Color(1, 0.9, 0.2, 0.35), 1.5)
 
-	# 6. HUD Superior (Stamina, Divisas, Nevera de Helados y Ticket del Chiringuito)
-	draw_rect(Rect2(0, 0, 1280, 95), Color(0.08, 0.12, 0.18, 0.9))
+	# 8. HUD Superior (Stamina, Divisas, Nevera de Helados y Ticket del Chiringuito)
+	draw_rect(Rect2(0, 0, 1280, 95), Color(0.08, 0.12, 0.18, 0.92))
 	var stam_ratio: float = clampf(current_stamina / max_stamina, 0.0, 1.0)
 	draw_rect(Rect2(24, 20, 280, 26), Color(0.2, 0.2, 0.2))
 	draw_rect(Rect2(24, 20, 280 * stam_ratio, 26), Color("#ff9f1c"))
@@ -486,11 +611,11 @@ func _draw() -> void:
 	draw_string(font, Vector2(910, 36), "🧾 CHIRINGUITO (Día %d/%d):" % [GameState.current_day, GameState.days_per_bill], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.WHITE)
 	draw_string(font, Vector2(910, 64), "%s -> %.0f €" % [bill["title"], bill["amount"]], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.SALMON)
 
-	# 7. Textos flotantes de daño / combos / helados
+	# 9. Textos flotantes de daño / combos / helados
 	for ft in floating_texts:
 		draw_string(font, ft["pos"], ft["text"], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, ft["color"])
 
-	# 8. Cartel de Fin de Ronda
+	# 10. Cartel de Fin de Ronda
 	if not round_active:
 		draw_rect(Rect2(340, 240, 600, 180), Color(0.05, 0.08, 0.12, 0.92))
 		draw_string(font, Vector2(420, 305), "🏖️ ¡DÍA TERMINADO! Te has quedado sin Stamina.", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color.WHITE)
