@@ -81,11 +81,11 @@ Estás de vacaciones en la playa con la familia y la cuenta del **Chiringuito** 
 
 ## 5. Milestone 3 — Postales de Veraneo, Eventos Playeros y Álbum de Colección
 
-### Fase 11: Sistema de Logros ("Postales de Veraneo") y Recompensas
+### Fase 11: Sistema de Logros ("Postales de Veraneo") y Recompensas (✅ Completado)
 - [x] **Issue #25:** Catálogo de 8 Postales de Veraneo desbloqueables con notificación *Toast* en tiempo real y recompensa directa de `+1 🐚 Concha Dorada`.
 
-### Fase 12: Eventos Especiales de Playa en mitad de la ronda
-- [ ] **Issue #26:** Eventos sorpresa positivos en mitad de la jornada (*Fiebre Turística*, *Invasión de Coquinas*, *Brisa Marina*).
+### Fase 12: Eventos Especiales de Playa en mitad de la ronda (✅ Completado)
+- [x] **Issue #26:** Eventos sorpresa positivos en mitad de la jornada (*Fiebre Turística*, *Bajamar de Coquinas*, *Brisa Marina*).
 
 ### Fase 13: Álbum de Postales y Estadísticas Globales
 - [ ] **Issue #27:** Pestaña interactiva de Álbum de Postales y registro histórico de estadísticas en el Paseo Marítimo y Menú Principal.
