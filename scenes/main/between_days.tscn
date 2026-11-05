@@ -1,4 +1,4 @@
-[gd_scene load_steps=2 format=3 uid="uid://c6betweendays01"]
+[gd_scene format=3 uid="uid://1ivk71xduhyy"]
 
 [ext_resource type="Script" path="res://scripts/between_days.gd" id="1_between"]
 
