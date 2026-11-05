@@ -1,78 +1,169 @@
 extends Node2D
 ## Escena Entre Rondas ("El Paseo Marítimo"):
 ## 1. Caseta de Cambio con Mercado Dinámico (ALZA / BAJA) y venta individual por divisa (Issue #18)
-## 2. Árbol de Habilidades Interactivo (4 Ramas + 5ª Pestaña de Prestigio Permanente)
-## 3. El Ticket del Chiringuito, Prestigio y Autoguardado (user://savegame.json)
+## 2. Árbol de Habilidades Visual (Grafo 2D de Nodos conectados por líneas con Pan/Arrastre y Tooltips - Issue #19)
+## 3. Tienda Permanente de Prestigio y El Ticket del Chiringuito
 
 var bill_paid_today: bool = false
 var bankruptcy_state: bool = false
 var status_message: String = ""
 var status_color: Color = Color.GOLD
 
-var selected_branch: int = 0
-var branch_titles: Array[String] = [
-	"🏖️ 1. Herramientas",
-	"🚜 2. Playa/Tractor",
-	"🍦 3. Helados/Suerte",
-	"💱 4. Divisas",
-	"🐚 5. Prestigio"
-]
+# 0 = Grafo Visual de Nodos (Issue #19), 1 = Tienda Permanente de Prestigio
+var view_mode: int = 0
 
-# Áreas clicables dinámicas
+# Pan / Arrastre del Grafo Visual
+var pan_offset := Vector2(35, -15)
+var is_panning: bool = false
+var pan_start_mouse := Vector2.ZERO
+var drag_accum: float = 0.0
+var hovered_node_id: String = ""
+
+var graph_panel_rect := Rect2(385, 105, 875, 600)
+var tab_graph_rect := Rect2(395, 112, 340, 40)
+var tab_prestige_rect := Rect2(745, 112, 320, 40)
+var btn_center_graph_rect := Rect2(1075, 112, 170, 40)
+
 var btn_exchange_rect := Rect2(30, 520, 330, 50)
 var btn_pay_bill_rect := Rect2(30, 585, 330, 50)
 var btn_next_day_rect := Rect2(30, 645, 330, 54)
 var btn_wipe_save_rect := Rect2(955, 625, 280, 44)
-var tab_rects: Array[Rect2] = []
+
 var upgrade_card_rects: Array[Dictionary] = []
 var single_exchange_rects: Array[Dictionary] = []
+var graph_node_Screen_positions: Dictionary = {}
+
+# Posiciones 2D relativas al centro del grafo para los 17 nodos (4 cuadrantes por rama)
+var node_graph_coords: Dictionary = {
+	# Cuadrante Arriba-Izquierda: Rama 1 (Herramientas y Críticos)
+	"shovel_damage": Vector2(-115, -60),
+	"shovel_radius": Vector2(-235, -130),
+	"unlock_bucket": Vector2(-355, -165),
+	"crit_chance": Vector2(-235, -35),
+	"multi_hit_bonus": Vector2(-360, -35),
+	"rake_magnet": Vector2(-115, 25),
+
+	# Cuadrante Arriba-Derecha: Rama 2 (Playa, Tractor y Automatización)
+	"crab_spawn_rate": Vector2(115, -60),
+	"unlock_tractor": Vector2(240, -140),
+	"tractor_cooldown": Vector2(360, -165),
+	"auto_nephew": Vector2(245, -50),
+	"crab_trap": Vector2(365, -50),
+	"auto_seagull": Vector2(245, 30),
+
+	# Cuadrante Abajo-Izquierda: Rama 3 (Kiosco de Helados y Suerte)
+	"max_stamina": Vector2(-115, 105),
+	"global_luck": Vector2(-240, 95),
+	"ice_cream_magnum": Vector2(-365, 95),
+	"ice_cream_foot": Vector2(-225, 175),
+	"ice_cream_rocket": Vector2(-345, 170),
+	"ice_cream_shark": Vector2(-460, 170),
+	"ice_cream_vampire": Vector2(-345, 240),
+
+	# Cuadrante Abajo-Derecha: Rama 4 (Turismo y Divisas)
+	"tourist_currencies": Vector2(115, 105),
+	"exchange_rate_boost": Vector2(250, 155)
+}
 
 func _ready() -> void:
 	GameState.save_game()
 	bill_paid_today = not GameState.is_bill_due_today()
 	bankruptcy_state = false
-	for i in range(5):
-		tab_rects.append(Rect2(392 + i * 172, 110, 166, 44))
 	if GameState.is_bill_due_today():
 		status_message = "⚠️ ¡HOY VENCE EL TICKET DEL CHIRINGUITO! Cambia divisas y paga la cuenta. (💾 Autoguardado)"
 		status_color = Color.ORANGE_RED
 	else:
-		var days_left: int = GameState.days_per_bill - (GameState.current_day % GameState.days_per_bill)
-		status_message = "📈 Bolsa Turística activa — Vende hoy las divisas en ALZA y guarda las que estén en BAJA."
+		status_message = "🕸️ Explora el Árbol Visual de Nodos (arrastra con el ratón y haz clic en un nodo para mejorarlo)."
 		status_color = Color.AQUAMARINE
 
-func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		var mpos: Vector2 = event.position
-		for i in range(tab_rects.size()):
-			if tab_rects[i].has_point(mpos):
-				selected_branch = i
-				queue_redraw()
-				return
-		# Botones individuales de venta por divisa (Issue #18)
-		for sbtn in single_exchange_rects:
-			if sbtn["rect"].has_point(mpos):
-				_on_single_exchange_pressed(sbtn["code"])
-				return
-		if selected_branch == 4 and btn_wipe_save_rect.has_point(mpos):
-			GameState.delete_save_and_reset_all()
-			status_message = "🗑️ Partida guardada borrada por completo. Todo reiniciado desde cero."
-			status_color = Color.ORANGE
+func _process(_delta: float) -> void:
+	if view_mode == 0:
+		var mpos: Vector2 = get_viewport().get_mouse_position()
+		var new_hover: String = ""
+		if graph_panel_rect.has_point(mpos):
+			for id in graph_node_Screen_positions.keys():
+				if mpos.distance_to(graph_node_Screen_positions[id]) <= 30.0:
+					new_hover = id
+					break
+		if new_hover != hovered_node_id:
+			hovered_node_id = new_hover
 			queue_redraw()
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion and is_panning and view_mode == 0:
+		pan_offset += event.relative
+		pan_offset.x = clampf(pan_offset.x, -260.0, 280.0)
+		pan_offset.y = clampf(pan_offset.y, -210.0, 210.0)
+		drag_accum += event.relative.length()
+		queue_redraw()
+		return
+
+	if event is InputEventMouseButton:
+		var mpos: Vector2 = event.position
+		if event.button_index == MOUSE_BUTTON_RIGHT and graph_panel_rect.has_point(mpos):
+			is_panning = event.pressed
+			drag_accum = 0.0
 			return
-		for card in upgrade_card_rects:
-			if card["rect"].has_point(mpos):
-				if selected_branch == 4:
-					_on_prestige_clicked(card["id"])
-				else:
-					_on_upgrade_clicked(card["id"])
-				return
-		if btn_exchange_rect.has_point(mpos):
-			_on_exchange_pressed()
-		elif btn_pay_bill_rect.has_point(mpos) and GameState.is_bill_due_today() and not bill_paid_today:
-			_on_pay_bill_pressed()
-		elif btn_next_day_rect.has_point(mpos):
-			_on_next_action_pressed()
+
+		if event.button_index == MOUSE_BUTTON_LEFT:
+			if event.pressed:
+				# Pestañas superiores del panel derecho
+				if tab_graph_rect.has_point(mpos):
+					view_mode = 0
+					queue_redraw()
+					return
+				elif tab_prestige_rect.has_point(mpos):
+					view_mode = 1
+					queue_redraw()
+					return
+				elif btn_center_graph_rect.has_point(mpos) and view_mode == 0:
+					pan_offset = Vector2(35, -15)
+					queue_redraw()
+					return
+
+				# Botones individuales de venta por divisa
+				for sbtn in single_exchange_rects:
+					if sbtn["rect"].has_point(mpos):
+						_on_single_exchange_pressed(sbtn["code"])
+						return
+
+				if view_mode == 1 and btn_wipe_save_rect.has_point(mpos):
+					GameState.delete_save_and_reset_all()
+					status_message = "🗑️ Partida guardada borrada por completo. Todo reiniciado desde cero."
+					status_color = Color.ORANGE
+					queue_redraw()
+					return
+
+				if view_mode == 1:
+					for card in upgrade_card_rects:
+						if card["rect"].has_point(mpos):
+							_on_prestige_clicked(card["id"])
+							return
+
+				if btn_exchange_rect.has_point(mpos):
+					_on_exchange_pressed()
+					return
+				elif btn_pay_bill_rect.has_point(mpos) and GameState.is_bill_due_today() and not bill_paid_today:
+					_on_pay_bill_pressed()
+					return
+				elif btn_next_day_rect.has_point(mpos):
+					_on_next_action_pressed()
+					return
+
+				# Iniciar arrastre o clic en el grafo visual
+				if view_mode == 0 and graph_panel_rect.has_point(mpos):
+					is_panning = true
+					drag_accum = 0.0
+					pan_start_mouse = mpos
+			else:
+				# Al soltar el botón izquierdo en el grafo: si no arrastró, comprobar clic en nodo
+				if is_panning and view_mode == 0:
+					is_panning = false
+					if drag_accum < 8.0:
+						for id in graph_node_Screen_positions.keys():
+							if mpos.distance_to(graph_node_Screen_positions[id]) <= 30.0:
+								_on_upgrade_clicked(id)
+								return
 
 func _on_single_exchange_pressed(code: String) -> void:
 	var gained: float = GameState.exchange_single_currency_to_eur(code)
@@ -86,13 +177,13 @@ func _on_single_exchange_pressed(code: String) -> void:
 
 func _on_upgrade_clicked(id: String) -> void:
 	if not GameState.is_upgrade_unlocked(id):
-		status_message = "🔒 Mejora bloqueada: compra primero el nodo anterior de la rama."
+		status_message = "🔒 Nodo bloqueado: compra primero al menos 1 nivel del nodo padre conectado."
 		status_color = Color.ORANGE
 		queue_redraw()
 		return
 	var cost: float = GameState.get_upgrade_cost(id)
 	if GameState.buy_upgrade(id):
-		status_message = "✨ ¡Mejora comprada y guardada (%.1f €)! Nevera: %s" % [cost, GameState.get_fridge_summary()]
+		status_message = "✨ ¡Nodo mejorado por %.1f €! Nevera: %s" % [cost, GameState.get_fridge_summary()]
 		status_color = Color.LIME_GREEN
 	else:
 		status_message = "❌ No tienes suficientes Euros (%.1f € requeridos) o ya está al nivel máximo." % cost
@@ -135,7 +226,7 @@ func _on_pay_bill_pressed() -> void:
 	else:
 		bankruptcy_state = true
 		var earned_shells: int = GameState.award_bankruptcy_shells()
-		selected_branch = 4
+		view_mode = 1
 		status_message = "🐚 ¡FIN DE VERANEO! Has ganado +%d Concha(s) Dorada(s) (💾 Guardado)." % earned_shells
 		status_color = Color.GOLD
 	queue_redraw()
@@ -157,21 +248,29 @@ func _on_next_action_pressed() -> void:
 	GameState.save_game()
 	get_tree().change_scene_to_file("res://scenes/main/beach_round.tscn")
 
+func _get_branch_color(branch: int) -> Color:
+	match branch:
+		0: return Color("#ff6b6b") # Herramientas / Críticos
+		1: return Color("#2ec4b6") # Playa / Tractor / Automatización
+		2: return Color("#c77dff") # Helados / Suerte
+		_: return Color("#ffd166") # Turismo / Divisas
+
 func _draw() -> void:
 	var font: Font = ThemeDB.fallback_font
 	upgrade_card_rects.clear()
 	single_exchange_rects.clear()
+	graph_node_Screen_positions.clear()
 
 	# Fondo general del Paseo Marítimo
 	draw_rect(Rect2(0, 0, 1280, 720), Color("#1b263b"))
 	draw_rect(Rect2(0, 0, 1280, 88), Color("#0d1b2a"))
 
 	# Cabecera
-	draw_string(font, Vector2(30, 38), "🌅 FIN DEL DÍA %d — PASEO MARÍTIMO & BOLSA DE DIVISAS" % GameState.current_day, HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color.WHITE)
+	draw_string(font, Vector2(30, 38), "🌅 FIN DEL DÍA %d — PASEO MARÍTIMO & ÁRBOL VISUAL DE NODOS" % GameState.current_day, HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color.WHITE)
 	draw_string(font, Vector2(30, 68), status_message, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, status_color)
 	draw_string(font, Vector2(790, 50), "💶 %.1f €   |   🐚 %d Conchas Doradas" % [GameState.currencies["EUR"], GameState.golden_shells], HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color.GOLD)
 
-	# --- COLUMNA IZQUIERDA: CASETA DE CAMBIO CON MERCADO DINÁMICO (Issue #18) ---
+	# --- COLUMNA IZQUIERDA: CASETA DE CAMBIO CON MERCADO DINÁMICO ---
 	draw_rect(Rect2(20, 105, 350, 600), Color("#0d1b2a"))
 	draw_rect(Rect2(20, 105, 350, 600), Color("#415a77"), false, 2.0)
 
@@ -221,75 +320,128 @@ func _draw() -> void:
 	var next_txt: String = "🔄 NUEVO VERANEO (Día 1)" if bankruptcy_state else "🏖️ IR AL DÍA %d DE PLAYA ->" % (GameState.current_day + 1)
 	draw_string(font, btn_next_day_rect.position + Vector2(35, 33), next_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color.BLACK if (bill_paid_today or bankruptcy_state) else Color.WHITE)
 
-	# --- PANEL DERECHO: ÁRBOL DE HABILIDADES (4 RAMAS + PRESTIGIO PERMANENTE) ---
-	draw_rect(Rect2(385, 105, 875, 600), Color("#0d1b2a"))
-	draw_rect(Rect2(385, 105, 875, 600), Color.GOLD if selected_branch == 4 else Color("#2ec4b6"), false, 2.0)
+	# --- PANEL DERECHO: GRAFO VISUAL DE NODOS (Issue #19) + PRESTIGIO ---
+	draw_rect(graph_panel_rect, Color("#09131c"))
+	draw_rect(graph_panel_rect, Color.GOLD if view_mode == 1 else Color("#2ec4b6"), false, 2.0)
 
-	for i in range(5):
-		var trect: Rect2 = tab_rects[i]
-		var is_sel: bool = (i == selected_branch)
-		var tab_col: Color = (Color.GOLD if i == 4 else Color("#2ec4b6")) if is_sel else Color("#1b263b")
-		draw_rect(trect, tab_col)
-		draw_string(font, trect.position + Vector2(8, 28), branch_titles[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.BLACK if is_sel else Color.WHITE)
+	# Botones de vista superiores
+	draw_rect(tab_graph_rect, Color("#2ec4b6") if view_mode == 0 else Color("#1b263b"))
+	draw_string(font, tab_graph_rect.position + Vector2(16, 26), "🕸️ ÁRBOL DE HABILIDADES (Grafo 2D)", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.BLACK if view_mode == 0 else Color.WHITE)
 
-	var card_y: float = 170.0
-	if selected_branch == 4:
-		draw_string(font, Vector2(410, 190), "🐚 TIENDA DE VERANEO PERMANENTE (Guardado automático en user://savegame.json):", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.GOLD)
-		card_y = 210.0
-		for pitem in GameState.prestige_catalog:
-			var pid: String = pitem["id"]
-			var plvl: int = GameState.prestige_upgrades.get(pid, 0)
-			var pmax: int = pitem["max_lvl"]
-			var pcost: int = GameState.get_prestige_cost(pid)
-			var pcan_buy: bool = plvl < pmax and GameState.golden_shells >= pcost
+	draw_rect(tab_prestige_rect, Color.GOLD if view_mode == 1 else Color("#1b263b"))
+	draw_string(font, tab_prestige_rect.position + Vector2(16, 26), "🐚 TIENDA DE PRESTIGIO (%d)" % GameState.golden_shells, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.BLACK if view_mode == 1 else Color.WHITE)
 
-			var prect := Rect2(410, card_y, 825, 84)
-			upgrade_card_rects.append({"id": pid, "rect": prect})
-
-			var pbg: Color = Color("#2b9348") if plvl >= pmax else (Color("#3d2c8d") if pcan_buy else Color("#1d3557"))
-			draw_rect(prect, pbg)
-			draw_rect(prect, Color.GOLD if pcan_buy else Color("#415a77"), false, 2.0)
-
-			draw_string(font, prect.position + Vector2(18, 30), "%s   [Nivel %d / %d]" % [pitem["title"], plvl, pmax], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.WHITE)
-			draw_string(font, prect.position + Vector2(18, 60), pitem["desc"], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.LIGHT_GRAY)
-
-			var pprice: String = "✅ MÁXIMO" if plvl >= pmax else "Comprar: %d 🐚" % pcost
-			draw_string(font, prect.position + Vector2(650, 48), pprice, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.GOLD if pcan_buy else Color.SALMON)
-			card_y += 98.0
-
-		draw_rect(btn_wipe_save_rect, Color("#6a040f"))
-		draw_string(font, btn_wipe_save_rect.position + Vector2(18, 28), "🗑️ Borrar Partida Guardada", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.WHITE)
+	if view_mode == 1:
+		_draw_prestige_shop(font)
 		return
 
-	# Nodos de las 4 ramas normales
+	draw_rect(btn_center_graph_rect, Color("#264653"))
+	draw_string(font, btn_center_graph_rect.position + Vector2(18, 25), "🎯 Centrar Árbol", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.WHITE)
+
+	# Centro del Grafo Visual
+	var hub_pos: Vector2 = Vector2(825, 365) + pan_offset
+
+	# Calcular posiciones en pantalla de todos los nodos
+	var item_by_id: Dictionary = {}
 	for item in GameState.upgrade_catalog:
-		if item["branch"] != selected_branch:
-			continue
 		var id: String = item["id"]
+		item_by_id[id] = item
+		var rel: Vector2 = node_graph_coords.get(id, Vector2.ZERO)
+		var sp: Vector2 = hub_pos + rel
+		# Mantener dentro del área visible del lienzo
+		sp.x = clampf(sp.x, 425.0, 1225.0)
+		sp.y = clampf(sp.y, 185.0, 585.0)
+		graph_node_Screen_positions[id] = sp
+
+	# 1. Dibujar líneas de conexión entre nodos padres e hijos
+	for item in GameState.upgrade_catalog:
+		var id: String = item["id"]
+		var req: String = item["req"]
+		var to_pos: Vector2 = graph_node_Screen_positions[id]
+		var from_pos: Vector2 = hub_pos if req == "" else graph_node_Screen_positions.get(req, hub_pos)
+		var unlocked: bool = GameState.is_upgrade_unlocked(id)
+		var b_col: Color = _get_branch_color(item["branch"])
+		var line_col: Color = b_col if unlocked else Color(0.25, 0.32, 0.4, 0.55)
+		draw_line(from_pos, to_pos, line_col, 3.5 if unlocked else 2.0)
+
+	# 2. Dibujar Nodo Central ("PLAYA")
+	draw_circle(hub_pos, 28.0, Color("#f4a261"))
+	draw_arc(hub_pos, 28.0, 0, TAU, 28, Color.WHITE, 2.5)
+	draw_string(font, hub_pos + Vector2(-22, 5), "🏖️ PLAYA", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color.BLACK)
+
+	# 3. Dibujar los 17 Nodos del Árbol
+	for item in GameState.upgrade_catalog:
+		var id: String = item["id"]
+		var npos: Vector2 = graph_node_Screen_positions[id]
 		var lvl: int = GameState.upgrades.get(id, 0)
 		var max_lvl: int = item["max_lvl"]
 		var unlocked: bool = GameState.is_upgrade_unlocked(id)
 		var cost: float = GameState.get_upgrade_cost(id)
 		var can_buy: bool = unlocked and lvl < max_lvl and GameState.currencies["EUR"] >= cost
+		var is_hovered: bool = (id == hovered_node_id)
+		var b_col: Color = _get_branch_color(item["branch"])
 
-		var crect := Rect2(410, card_y, 825, 66)
-		upgrade_card_rects.append({"id": id, "rect": crect})
-
-		var bg_col: Color = Color("#1d3557") if unlocked else Color(0.1, 0.1, 0.15, 0.7)
+		var node_r: float = 31.0 if is_hovered else 27.0
+		var fill_col: Color = Color("#16222f")
 		if lvl >= max_lvl:
-			bg_col = Color("#2b9348")
+			fill_col = Color("#2b9348")
 		elif can_buy:
-			bg_col = Color("#264653")
+			fill_col = Color("#1d4e5f")
+		elif unlocked:
+			fill_col = Color("#1d3557")
 
-		draw_rect(crect, bg_col)
-		draw_rect(crect, Color.GOLD if can_buy else Color("#415a77"), false, 2.0)
+		draw_circle(npos + Vector2(0, 4), node_r, Color(0, 0, 0, 0.4))
+		draw_circle(npos, node_r, fill_col)
+		var border_col: Color = Color.WHITE if is_hovered else (Color.GOLD if can_buy else (b_col if unlocked else Color("#33415c")))
+		draw_arc(npos, node_r, 0, TAU, 28, border_col, 3.2 if (can_buy or is_hovered) else 2.0)
 
-		var title_str: String = "%s   [Nivel %d / %d]" % [item["title"], lvl, max_lvl]
-		draw_string(font, crect.position + Vector2(18, 25), title_str, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color.WHITE if unlocked else Color.GRAY)
-		draw_string(font, crect.position + Vector2(18, 50), item["desc"], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.LIGHT_GRAY)
+		# Icono y nivel dentro del nodo
+		var icon_str: String = item["title"].split(" ")[0]
+		draw_string(font, npos + Vector2(-10, -2), icon_str, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.WHITE if unlocked else Color.DARK_GRAY)
+		draw_string(font, npos + Vector2(-15, 16), "%d/%d" % [lvl, max_lvl], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.GOLD if lvl > 0 else Color.LIGHT_GRAY)
 
-		var price_str: String = "✅ MÁXIMO" if lvl >= max_lvl else ("🔒 Req: %s" % item["req"] if not unlocked else "Comprar: %.1f €" % cost)
-		var price_col: Color = Color.LIME_GREEN if lvl >= max_lvl else (Color.GOLD if can_buy else Color.SALMON)
-		draw_string(font, crect.position + Vector2(630, 38), price_str, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, price_col)
+	# 4. Barra Inferior de Inspector / Tooltip dentro del Grafo
+	var tip_rect := Rect2(400, 615, 845, 78)
+	draw_rect(tip_rect, Color("#14213d"))
+	draw_rect(tip_rect, Color("#415a77"), false, 1.5)
 
-		card_y += 74.0
+	if hovered_node_id != "" and item_by_id.has(hovered_node_id):
+		var hitem: Dictionary = item_by_id[hovered_node_id]
+		var hlvl: int = GameState.upgrades.get(hovered_node_id, 0)
+		var hmax: int = hitem["max_lvl"]
+		var hunlocked: bool = GameState.is_upgrade_unlocked(hovered_node_id)
+		var hcost: float = GameState.get_upgrade_cost(hovered_node_id)
+		draw_string(font, tip_rect.position + Vector2(16, 26), "%s   [Nivel %d / %d]" % [hitem["title"], hlvl, hmax], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.GOLD)
+		draw_string(font, tip_rect.position + Vector2(16, 54), hitem["desc"], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.WHITE)
+		var hstatus: String = "✅ NIVEL MÁXIMO" if hlvl >= hmax else ("🔒 Requiere nodo anterior" if not hunlocked else "🖱️ Clic para mejorar: %.1f €" % hcost)
+		draw_string(font, tip_rect.position + Vector2(580, 42), hstatus, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.LIME_GREEN if hunlocked else Color.SALMON)
+	else:
+		draw_string(font, tip_rect.position + Vector2(18, 32), "💡 Pasa el ratón sobre cualquier nodo del árbol para ver sus detalles y haz clic izquierdo para comprarlo.", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.LIGHT_GRAY)
+		draw_string(font, tip_rect.position + Vector2(18, 58), "🎨 Colores de Rama:  🔴 Herramientas/Críticos   |   🟢 Playa/Tractor/Auto   |   🟣 Helados/Suerte   |   🟡 Turismo/Divisas", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.AQUAMARINE)
+
+func _draw_prestige_shop(font: Font) -> void:
+	draw_string(font, Vector2(410, 190), "🐚 TIENDA DE VERANEO PERMANENTE (Guardado automático en user://savegame.json):", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.GOLD)
+	var card_y: float = 210.0
+	for pitem in GameState.prestige_catalog:
+		var pid: String = pitem["id"]
+		var plvl: int = GameState.prestige_upgrades.get(pid, 0)
+		var pmax: int = pitem["max_lvl"]
+		var pcost: int = GameState.get_prestige_cost(pid)
+		var pcan_buy: bool = plvl < pmax and GameState.golden_shells >= pcost
+
+		var prect := Rect2(410, card_y, 825, 84)
+		upgrade_card_rects.append({"id": pid, "rect": prect})
+
+		var pbg: Color = Color("#2b9348") if plvl >= pmax else (Color("#3d2c8d") if pcan_buy else Color("#1d3557"))
+		draw_rect(prect, pbg)
+		draw_rect(prect, Color.GOLD if pcan_buy else Color("#415a77"), false, 2.0)
+
+		draw_string(font, prect.position + Vector2(18, 30), "%s   [Nivel %d / %d]" % [pitem["title"], plvl, pmax], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.WHITE)
+		draw_string(font, prect.position + Vector2(18, 60), pitem["desc"], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.LIGHT_GRAY)
+
+		var pprice: String = "✅ MÁXIMO" if plvl >= pmax else "Comprar: %d 🐚" % pcost
+		draw_string(font, prect.position + Vector2(650, 48), pprice, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.GOLD if pcan_buy else Color.SALMON)
+		card_y += 98.0
+
+	draw_rect(btn_wipe_save_rect, Color("#6a040f"))
+	draw_string(font, btn_wipe_save_rect.position + Vector2(18, 28), "🗑️ Borrar Partida Guardada", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.WHITE)
