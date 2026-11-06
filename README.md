@@ -89,3 +89,10 @@ Estás de vacaciones en la playa con la familia y la cuenta del **Chiringuito** 
 
 ### Fase 13: Álbum de Postales y Estadísticas Globales (✅ Completado)
 - [x] **Issue #27:** Pestaña interactiva de Álbum de Postales y registro histórico de estadísticas en el Paseo Marítimo y Menú Principal.
+
+---
+
+## 6. Milestone 4 — Ambientación Musical y Pulido Extra
+
+### Fase 14: Radio Cassette Playera (Música de Verano Procedural Chiptune) (✅ Completado)
+- [x] **Issue #31:** Sintetizador musical multipista con 3 emisoras veraniegas en bucle (*📻 Chiringuito FM*, *🌴 Costa Tropical*, *🌊 Olas Chill* + *🔇 Radio OFF*) controlable con la tecla `[R]` o desde los menús.

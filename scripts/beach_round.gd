@@ -1,6 +1,6 @@
 extends Node2D
 ## Escena principal de la ronda en la playa ("La Orilla")
-## Incluye: Herramientas, Fauna Marina, Olas, Helados, Game Feel, Automatización, Logros y Eventos Playeros (Issue #26 & #27).
+## Incluye: Herramientas, Fauna Marina, Olas, Helados, Game Feel, Automatización, Logros, Eventos y Radio Cassette (Issue #31).
 
 var current_stamina: float = 100.0
 var max_stamina: float = 100.0
@@ -658,7 +658,7 @@ func _on_next_day_pressed() -> void:
 	GameState.save_game()
 	get_tree().change_scene_to_file("res://scenes/main/between_days.tscn")
 
-# --- Renderizado Visual con Arte 2D Estilizado y Efectos ("Juice" + Automatización + Eventos) ---
+# --- Renderizado Visual con Arte 2D Estilizado y Efectos ("Juice" + Automatización + Eventos + Radio) ---
 
 func _draw() -> void:
 	var font: Font = ThemeDB.fallback_font
@@ -781,8 +781,8 @@ func _draw() -> void:
 		GameState.currencies["EUR"], GameState.currencies["USD"], GameState.currencies["GBP"], GameState.currencies["PEN"]
 	]
 	draw_string(font, Vector2(440, 34), c_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color.GOLD)
-	var fridge_text: String = "🍦 Nevera: %s  |  🍀 Suerte: x%.1f  |  🏅 %d/%d" % [GameState.get_fridge_summary(), GameState.get_luck_multiplier() * _get_event_luck_bonus(), GameState.get_unlocked_achievements_count(), GameState.achievement_catalog.size()]
-	draw_string(font, Vector2(440, 68), fridge_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.AQUAMARINE)
+	var fridge_text: String = "🍦 %s  |  🍀 x%.1f  |  🏅 %d/%d  |  [R] %s" % [GameState.get_fridge_summary(), GameState.get_luck_multiplier() * _get_event_luck_bonus(), GameState.get_unlocked_achievements_count(), GameState.achievement_catalog.size(), GameState.get_radio_station_name()]
+	draw_string(font, Vector2(440, 68), fridge_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.AQUAMARINE)
 
 	var bill: Dictionary = GameState.get_current_bill()
 	draw_string(font, Vector2(910, 36), "🧾 CHIRINGUITO (Día %d/%d):" % [GameState.current_day, GameState.days_per_bill], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.WHITE)

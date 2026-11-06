@@ -2,7 +2,7 @@ extends Node2D
 ## Escena Entre Rondas ("El Paseo Marítimo"):
 ## 1. Caseta de Cambio con Mercado Dinámico (ALZA / BAJA) y venta individual por divisa (Issue #18)
 ## 2. Árbol de Habilidades Visual (Grafo 2D de Nodos conectados por líneas con Pan/Arrastre y Tooltips - Issue #19)
-## 3. Tienda Permanente de Prestigio y Álbum de Postales + Estadísticas Globales (Issue #25 & #27)
+## 3. Tienda Permanente de Prestigio, Álbum de Postales + Estadísticas y Radio Cassette (Issue #25, #27 & #31)
 
 var bill_paid_today: bool = false
 var bankruptcy_state: bool = false
@@ -29,6 +29,7 @@ var tab_graph_rect := Rect2(395, 112, 265, 40)
 var tab_prestige_rect := Rect2(668, 112, 225, 40)
 var tab_postcards_rect := Rect2(901, 112, 200, 40)
 var btn_center_graph_rect := Rect2(1109, 112, 138, 40)
+var btn_radio_rect := Rect2(1045, 50, 215, 30)
 
 var btn_exchange_rect := Rect2(30, 520, 330, 50)
 var btn_pay_bill_rect := Rect2(30, 585, 330, 50)
@@ -125,6 +126,11 @@ func _unhandled_input(event: InputEvent) -> void:
 
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
+				if btn_radio_rect.has_point(mpos):
+					GameState.cycle_radio_station()
+					queue_redraw()
+					return
+
 				# Pestañas superiores del panel derecho
 				if tab_graph_rect.has_point(mpos):
 					view_mode = 0
@@ -290,7 +296,12 @@ func _draw() -> void:
 	# Cabecera
 	draw_string(font, Vector2(30, 38), "🌅 FIN DEL DÍA %d — PASEO MARÍTIMO & ÁRBOL VISUAL DE NODOS" % GameState.current_day, HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color.WHITE)
 	draw_string(font, Vector2(30, 68), status_message, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, status_color)
-	draw_string(font, Vector2(735, 50), "💶 %.1f €  |  🐚 %d Conchas  |  🏅 %d/%d Postales" % [GameState.currencies["EUR"], GameState.golden_shells, GameState.get_unlocked_achievements_count(), GameState.achievement_catalog.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, 19, Color.GOLD)
+	draw_string(font, Vector2(735, 34), "💶 %.1f €  |  🐚 %d Conchas  |  🏅 %d/%d Postales" % [GameState.currencies["EUR"], GameState.golden_shells, GameState.get_unlocked_achievements_count(), GameState.achievement_catalog.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.GOLD)
+
+	# Botón de Radio Cassette en Cabecera (Issue #31)
+	draw_rect(btn_radio_rect, Color("#3d5a80"))
+	draw_rect(btn_radio_rect, Color.AQUAMARINE, false, 1.5)
+	draw_string(font, btn_radio_rect.position + Vector2(10, 20), "[R] %s" % GameState.get_radio_station_name(), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.WHITE)
 
 	# --- COLUMNA IZQUIERDA: CASETA DE CAMBIO CON MERCADO DINÁMICO ---
 	draw_rect(Rect2(20, 105, 350, 600), Color("#0d1b2a"))
