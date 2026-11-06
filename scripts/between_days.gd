@@ -2,14 +2,14 @@ extends Node2D
 ## Escena Entre Rondas ("El Paseo Marítimo"):
 ## 1. Caseta de Cambio con Mercado Dinámico (ALZA / BAJA) y venta individual por divisa (Issue #18)
 ## 2. Árbol de Habilidades Visual (Grafo 2D de Nodos conectados por líneas con Pan/Arrastre y Tooltips - Issue #19)
-## 3. Tienda Permanente de Prestigio, El Ticket del Chiringuito y Notificación de Postales (Issue #25)
+## 3. Tienda Permanente de Prestigio y Álbum de Postales + Estadísticas Globales (Issue #25 & #27)
 
 var bill_paid_today: bool = false
 var bankruptcy_state: bool = false
 var status_message: String = ""
 var status_color: Color = Color.GOLD
 
-# 0 = Grafo Visual de Nodos (Issue #19), 1 = Tienda Permanente de Prestigio
+# 0 = Grafo Visual de Nodos (Issue #19), 1 = Tienda Permanente de Prestigio, 2 = Álbum de Postales y Estadísticas (Issue #27)
 var view_mode: int = 0
 
 # Notificación Toast de Postal Desbloqueada (Issue #25)
@@ -25,9 +25,10 @@ var drag_accum: float = 0.0
 var hovered_node_id: String = ""
 
 var graph_panel_rect := Rect2(385, 105, 875, 600)
-var tab_graph_rect := Rect2(395, 112, 340, 40)
-var tab_prestige_rect := Rect2(745, 112, 320, 40)
-var btn_center_graph_rect := Rect2(1075, 112, 170, 40)
+var tab_graph_rect := Rect2(395, 112, 265, 40)
+var tab_prestige_rect := Rect2(668, 112, 225, 40)
+var tab_postcards_rect := Rect2(901, 112, 200, 40)
+var btn_center_graph_rect := Rect2(1109, 112, 138, 40)
 
 var btn_exchange_rect := Rect2(30, 520, 330, 50)
 var btn_pay_bill_rect := Rect2(30, 585, 330, 50)
@@ -79,7 +80,7 @@ func _ready() -> void:
 		status_message = "⚠️ ¡HOY VENCE EL TICKET DEL CHIRINGUITO! Cambia divisas y paga la cuenta. (💾 Autoguardado)"
 		status_color = Color.ORANGE_RED
 	else:
-		status_message = "🕸️ Explora el Árbol Visual de Nodos (arrastra con el ratón y haz clic en un nodo para mejorarlo)."
+		status_message = "🕸️ Explora el Árbol Visual de Nodos o revisa tu Álbum de Postales y Estadísticas."
 		status_color = Color.AQUAMARINE
 
 func _on_achievement_unlocked(title: String, desc: String) -> void:
@@ -131,6 +132,10 @@ func _unhandled_input(event: InputEvent) -> void:
 					return
 				elif tab_prestige_rect.has_point(mpos):
 					view_mode = 1
+					queue_redraw()
+					return
+				elif tab_postcards_rect.has_point(mpos):
+					view_mode = 2
 					queue_redraw()
 					return
 				elif btn_center_graph_rect.has_point(mpos) and view_mode == 0:
@@ -337,29 +342,36 @@ func _draw() -> void:
 	var next_txt: String = "🔄 NUEVO VERANEO (Día 1)" if bankruptcy_state else "🏖️ IR AL DÍA %d DE PLAYA ->" % (GameState.current_day + 1)
 	draw_string(font, btn_next_day_rect.position + Vector2(35, 33), next_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color.BLACK if (bill_paid_today or bankruptcy_state) else Color.WHITE)
 
-	# --- PANEL DERECHO: GRAFO VISUAL DE NODOS (Issue #19) + PRESTIGIO ---
+	# --- PANEL DERECHO: GRAFO VISUAL DE NODOS (0) + PRESTIGIO (1) + POSTALES Y ESTADÍSTICAS (2) ---
 	draw_rect(graph_panel_rect, Color("#09131c"))
-	draw_rect(graph_panel_rect, Color.GOLD if view_mode == 1 else Color("#2ec4b6"), false, 2.0)
+	var border_panel_col: Color = Color("#2ec4b6") if view_mode == 0 else (Color.GOLD if view_mode == 1 else Color("#f4a261"))
+	draw_rect(graph_panel_rect, border_panel_col, false, 2.0)
 
-	# Botones de vista superiores
+	# 3 Pestañas superiores
 	draw_rect(tab_graph_rect, Color("#2ec4b6") if view_mode == 0 else Color("#1b263b"))
-	draw_string(font, tab_graph_rect.position + Vector2(16, 26), "🕸️ ÁRBOL DE HABILIDADES (Grafo 2D)", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.BLACK if view_mode == 0 else Color.WHITE)
+	draw_string(font, tab_graph_rect.position + Vector2(12, 26), "🕸️ ÁRBOL DE NODOS (2D)", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.BLACK if view_mode == 0 else Color.WHITE)
 
 	draw_rect(tab_prestige_rect, Color.GOLD if view_mode == 1 else Color("#1b263b"))
-	draw_string(font, tab_prestige_rect.position + Vector2(16, 26), "🐚 TIENDA DE PRESTIGIO (%d)" % GameState.golden_shells, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.BLACK if view_mode == 1 else Color.WHITE)
+	draw_string(font, tab_prestige_rect.position + Vector2(12, 26), "🐚 PRESTIGIO (%d)" % GameState.golden_shells, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.BLACK if view_mode == 1 else Color.WHITE)
+
+	draw_rect(tab_postcards_rect, Color("#f4a261") if view_mode == 2 else Color("#1b263b"))
+	draw_string(font, tab_postcards_rect.position + Vector2(12, 26), "🏅 POSTALES (%d/%d)" % [GameState.get_unlocked_achievements_count(), GameState.achievement_catalog.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.BLACK if view_mode == 2 else Color.WHITE)
 
 	if view_mode == 1:
 		_draw_prestige_shop(font)
 		_draw_toast_banner(font)
 		return
+	elif view_mode == 2:
+		_draw_postcards_and_stats(font)
+		_draw_toast_banner(font)
+		return
 
 	draw_rect(btn_center_graph_rect, Color("#264653"))
-	draw_string(font, btn_center_graph_rect.position + Vector2(18, 25), "🎯 Centrar Árbol", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.WHITE)
+	draw_string(font, btn_center_graph_rect.position + Vector2(12, 25), "🎯 Centrar", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.WHITE)
 
 	# Centro del Grafo Visual
 	var hub_pos: Vector2 = Vector2(825, 365) + pan_offset
 
-	# Calcular posiciones en pantalla de todos los nodos
 	var item_by_id: Dictionary = {}
 	for item in GameState.upgrade_catalog:
 		var id: String = item["id"]
@@ -471,3 +483,41 @@ func _draw_prestige_shop(font: Font) -> void:
 
 	draw_rect(btn_wipe_save_rect, Color("#6a040f"))
 	draw_string(font, btn_wipe_save_rect.position + Vector2(18, 28), "🗑️ Borrar Partida Guardada", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.WHITE)
+
+func _draw_postcards_and_stats(font: Font) -> void:
+	# 1. Bloque de Estadísticas Históricas Globales
+	var stats_rect := Rect2(405, 168, 835, 92)
+	draw_rect(stats_rect, Color("#14213d"))
+	draw_rect(stats_rect, Color("#f4a261"), false, 2.0)
+	draw_string(font, stats_rect.position + Vector2(16, 26), "📊 RÉCORDS Y ESTADÍSTICAS GLOBALES DEL VERANEANTE", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.GOLD)
+
+	var st: Dictionary = GameState.lifetime_stats
+	var line1: String = "🦀 Bichos Atrapados: %d   |   💶 Euros Ganados Totales: %.1f €   |   🧾 Cuentas Pagadas: %d" % [
+		int(st.get("total_crabs_caught", 0)), float(st.get("total_eur_earned", 0.0)), int(st.get("total_bills_paid", 0))
+	]
+	var line2: String = "🌞 Récord de Día Alcanzado: Día %d   |   💥 Mejor Combo en un Golpe: x%d   |   🏅 Postales: %d / %d" % [
+		int(st.get("max_day_reached", 1)), int(st.get("best_combo", 1)), GameState.get_unlocked_achievements_count(), GameState.achievement_catalog.size()
+	]
+	draw_string(font, stats_rect.position + Vector2(16, 54), line1, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.WHITE)
+	draw_string(font, stats_rect.position + Vector2(16, 78), line2, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.AQUAMARINE)
+
+	# 2. Cuadrícula 2x4 del Álbum de Postales de Veraneo
+	draw_string(font, Vector2(405, 286), "🏅 ÁLBUM DE POSTALES DE VERANEO (Cada postal desbloqueada otorga +1 🐚 Concha Dorada):", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.GOLD)
+
+	for i in range(GameState.achievement_catalog.size()):
+		var ach: Dictionary = GameState.achievement_catalog[i]
+		var aid: String = ach["id"]
+		var is_unlk: bool = GameState.unlocked_achievements.get(aid, false)
+		var col_idx: int = i % 2
+		var row_idx: int = int(i / 2.0)
+		var cx: float = 405.0 + col_idx * 422.0
+		var cy: float = 300.0 + row_idx * 96.0
+		var crect := Rect2(cx, cy, 410, 84)
+
+		draw_rect(crect, Color("#1d4e5f") if is_unlk else Color("#121c29"))
+		draw_rect(crect, Color.GOLD if is_unlk else Color("#33415c"), false, 2.2 if is_unlk else 1.5)
+
+		draw_string(font, crect.position + Vector2(14, 28), ach["title"], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.GOLD if is_unlk else Color.LIGHT_GRAY)
+		var badge: String = "✅ +1 🐚" if is_unlk else "🔒 Pendiente"
+		draw_string(font, crect.position + Vector2(312, 28), badge, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.LIME_GREEN if is_unlk else Color.DARK_GRAY)
+		draw_string(font, crect.position + Vector2(14, 58), ach["desc"], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE if is_unlk else Color.GRAY)
