@@ -1,6 +1,6 @@
 extends Node
 ## Estado global del juego (Autoload: GameState)
-## Incluye Store Global, Guardado/Carga, Audio Procedural, Mercado Dinámico, Opciones, Logros y Estadísticas (Issue #25 & #27).
+## Incluye Store Global, Guardado/Carga, Audio Procedural + Radio Cassette Chiptune (Issue #31), Mercado, Logros y Estadísticas.
 
 signal currencies_updated
 signal stamina_changed(current: float, maximum: float)
@@ -9,13 +9,16 @@ signal achievement_unlocked(title: String, desc: String)
 
 const SAVE_PATH: String = "user://savegame.json"
 
-# --- Opciones de Audio y Pantalla (Issue #20) ---
+# --- Opciones de Audio, Radio Cassette y Pantalla (Issue #20 & #31) ---
 var master_volume_pct: int = 100
 var is_fullscreen: bool = false
+var radio_station: int = 1 # 0 = Apagada, 1 = Chiringuito FM, 2 = Costa Tropical, 3 = Olas Chill
 
-# --- Pool de Audio Procedural con Variación de Pitch (Issue #8) ---
+# --- Pool de Audio Procedural y Reproductor de Radio (Issue #8 & #31) ---
 var sfx_streams: Dictionary = {}
 var sfx_players: Array[AudioStreamPlayer] = []
+var radio_streams: Dictionary = {}
+var music_player: AudioStreamPlayer = null
 
 # --- Ciclo y Facturas del Chiringuito ---
 var current_day: int = 1
@@ -148,16 +151,48 @@ func _ready() -> void:
 	_init_procedural_audio()
 	if not load_game():
 		roll_daily_market()
+	_update_radio_playback()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_F11:
 			toggle_fullscreen()
+		elif event.keycode == KEY_R:
+			cycle_radio_station()
+			var current_scene: Node = get_tree().current_scene
+			if current_scene and current_scene.has_method("queue_redraw"):
+				current_scene.queue_redraw()
 		elif event.keycode == KEY_ESCAPE:
 			var current_scene: Node = get_tree().current_scene
 			if current_scene and current_scene.name != "MainMenu":
 				save_game()
 				get_tree().change_scene_to_file("res://scenes/main/main_menu.tscn")
+
+# --- Radio Cassette Playera: Emisoras Chiptune Procedurales (Issue #31) ---
+
+func get_radio_station_name() -> String:
+	match radio_station:
+		1: return "📻 Chiringuito FM"
+		2: return "🌴 Costa Tropical"
+		3: return "🌊 Olas Chill"
+		_: return "🔇 Radio OFF"
+
+func cycle_radio_station() -> void:
+	radio_station = (radio_station + 1) % 4
+	play_sfx("buy", 1.1, 1.3)
+	_update_radio_playback()
+	save_game()
+
+func _update_radio_playback() -> void:
+	if not music_player:
+		return
+	if master_volume_pct <= 0 or radio_station <= 0 or not radio_streams.has(radio_station):
+		music_player.stop()
+		return
+	var target_stream: AudioStreamWAV = radio_streams[radio_station]
+	if music_player.stream != target_stream or not music_player.playing:
+		music_player.stream = target_stream
+		music_player.play()
 
 # --- Sistema de Logros y Estadísticas Globales (Issue #25 & #27) ---
 
@@ -178,7 +213,7 @@ func unlock_achievement(id: String) -> bool:
 	for item in achievement_catalog:
 		if item["id"] == id:
 			unlocked_achievements[id] = true
-			golden_shells += 1 # +1 Concha Dorada de recompensa por cada postal
+			golden_shells += 1
 			play_sfx("crit", 1.12, 1.32)
 			save_game()
 			achievement_unlocked.emit(item["title"], item["desc"])
@@ -214,12 +249,18 @@ func cycle_volume() -> void:
 
 func _apply_audio_volume() -> void:
 	var db: float = -80.0
+	var music_db: float = -80.0
 	if master_volume_pct == 100:
 		db = -6.0
+		music_db = -14.5
 	elif master_volume_pct == 50:
 		db = -15.0
+		music_db = -23.0
 	for p in sfx_players:
 		p.volume_db = db
+	if music_player:
+		music_player.volume_db = music_db
+	_update_radio_playback()
 
 func toggle_fullscreen() -> void:
 	is_fullscreen = not is_fullscreen
@@ -262,7 +303,7 @@ func exchange_single_currency_to_eur(code: String) -> float:
 	save_game()
 	return gained
 
-# --- Sintetizador de Sonidos Procedurales con Variación de Pitch (Issue #8) ---
+# --- Sintetizador de Sonidos y Música Chiptune Procedural (Issue #8 & #31) ---
 
 func _init_procedural_audio() -> void:
 	for i in range(10):
@@ -271,12 +312,72 @@ func _init_procedural_audio() -> void:
 		add_child(p)
 		sfx_players.append(p)
 
+	music_player = AudioStreamPlayer.new()
+	music_player.volume_db = -14.5
+	add_child(music_player)
+
 	sfx_streams["hit"] = _make_tone(190.0, 75.0, 0.08, 0.35)
 	sfx_streams["bucket"] = _make_tone(130.0, 42.0, 0.18, 0.55)
 	sfx_streams["crit"] = _make_tone(520.0, 880.0, 0.12, 0.2)
 	sfx_streams["coin"] = _make_tone(780.0, 1180.0, 0.07, 0.05)
 	sfx_streams["buy"] = _make_tone(440.0, 660.0, 0.14, 0.1)
 	sfx_streams["tractor"] = _make_tone(95.0, 110.0, 0.32, 0.6)
+
+	# Emisora 1: Chiringuito FM (Rumba Veraniega 8-Bit)
+	radio_streams[1] = _make_radio_loop(
+		[523.25, 659.25, 783.99, 880.00, 783.99, 659.25, 587.33, 523.25, 587.33, 659.25, 783.99, 659.25, 587.33, 523.25, 493.88, 523.25],
+		[130.81, 196.00, 130.81, 196.00, 174.61, 220.00, 146.83, 196.00, 130.81, 196.00, 164.81, 220.00, 146.83, 196.00, 123.47, 130.81],
+		0.21, 0.12
+	)
+	# Emisora 2: Costa Tropical (Calipso Isleño)
+	radio_streams[2] = _make_radio_loop(
+		[698.46, 880.00, 1046.50, 880.00, 783.99, 659.25, 523.25, 587.33, 698.46, 880.00, 987.77, 880.00, 783.99, 659.25, 587.33, 523.25],
+		[174.61, 261.63, 174.61, 261.63, 196.00, 293.66, 130.81, 196.00, 174.61, 261.63, 196.00, 246.94, 130.81, 196.00, 146.83, 130.81],
+		0.19, 0.08
+	)
+	# Emisora 3: Olas Chill (Atardecer Suave)
+	radio_streams[3] = _make_radio_loop(
+		[440.00, 523.25, 659.25, 523.25, 392.00, 493.88, 587.33, 493.88, 349.23, 440.00, 523.25, 440.00, 329.63, 392.00, 493.88, 392.00],
+		[110.00, 110.00, 164.81, 164.81, 98.00, 98.00, 146.83, 146.83, 87.31, 87.31, 130.81, 130.81, 82.41, 82.41, 123.47, 123.47],
+		0.30, 0.03
+	)
+
+func _make_radio_loop(melody: Array, bass: Array, step_dur: float, perc_mix: float) -> AudioStreamWAV:
+	var rate: int = 11025
+	var step_samples: int = int(rate * step_dur)
+	var total_steps: int = melody.size()
+	var total_samples: int = step_samples * total_steps
+	var data := PackedByteArray()
+	data.resize(total_samples)
+
+	var phase_m: float = 0.0
+	var phase_b: float = 0.0
+	for s in range(total_steps):
+		var fm: float = float(melody[s])
+		var fb: float = float(bass[s])
+		var offset: int = s * step_samples
+		for i in range(step_samples):
+			var t: float = float(i) / float(step_samples)
+			var env_m: float = pow(1.0 - t * 0.75, 1.3)
+			var env_b: float = 1.0 - t * 0.45
+			phase_m += TAU * fm / float(rate)
+			phase_b += TAU * fb / float(rate)
+			# Onda melodía suave + armónico + bajo + maraca rítmica en los primeros instantes del pulso
+			var lead: float = (sin(phase_m) * 0.7 + sin(phase_m * 2.0) * 0.3) * env_m
+			var sub: float = sin(phase_b) * env_b
+			var shaker: float = (randf_range(-1.0, 1.0) * perc_mix) if (t < 0.18 and s % 2 == 1) else 0.0
+			var mix_val: float = lead * 0.50 + sub * 0.40 + shaker
+			var sample_int: int = int(clampf(mix_val * 85.0, -115.0, 115.0))
+			data[offset + i] = sample_int & 0xFF
+
+	var stream := AudioStreamWAV.new()
+	stream.format = AudioStreamWAV.FORMAT_8_BITS
+	stream.mix_rate = rate
+	stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	stream.loop_begin = 0
+	stream.loop_end = total_samples
+	stream.data = data
+	return stream
 
 func _make_tone(f_start: float, f_end: float, duration: float, noise_mix: float) -> AudioStreamWAV:
 	var rate: int = 22050
@@ -321,6 +422,7 @@ func save_game() -> void:
 		"current_day": current_day,
 		"current_bill_index": current_bill_index,
 		"master_volume_pct": master_volume_pct,
+		"radio_station": radio_station,
 		"currencies": currencies,
 		"market_multipliers": market_multipliers,
 		"upgrades": upgrades,
@@ -352,6 +454,7 @@ func load_game() -> bool:
 	current_bill_index = int(data.get("current_bill_index", 0))
 	golden_shells = int(data.get("golden_shells", 0))
 	master_volume_pct = int(data.get("master_volume_pct", 100))
+	radio_station = int(data.get("radio_station", 1))
 	_apply_audio_volume()
 
 	if data.has("currencies") and typeof(data["currencies"]) == TYPE_DICTIONARY:

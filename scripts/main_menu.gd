@@ -1,5 +1,5 @@
 extends Node2D
-## Escena de Menú Principal, Opciones y Álbum de Postales ("Chiringuito Must Be Paid" - Issue #20 & #27)
+## Escena de Menú Principal, Opciones, Radio Cassette y Álbum de Postales ("Chiringuito Must Be Paid" - Issue #20, #27 & #31)
 
 var wave_time: float = 0.0
 var hovered_btn: int = -1
@@ -7,12 +7,13 @@ var show_album_modal: bool = false
 var bg_crabs: Array[Dictionary] = []
 
 var btn_rects: Array[Rect2] = [
-	Rect2(420, 240, 440, 50), # 0: Continuar / Jugar
-	Rect2(420, 300, 440, 46), # 1: Nueva Run (Día 1)
-	Rect2(420, 356, 440, 46), # 2: Álbum de Postales y Récords (Issue #27)
-	Rect2(420, 412, 440, 46), # 3: Volumen Master
-	Rect2(420, 468, 440, 46), # 4: Pantalla Completa (F11)
-	Rect2(420, 524, 440, 46)  # 5: Salir al Escritorio
+	Rect2(420, 218, 440, 46), # 0: Continuar / Jugar
+	Rect2(420, 272, 440, 44), # 1: Nueva Run (Día 1)
+	Rect2(420, 324, 440, 44), # 2: Álbum de Postales y Récords (Issue #27)
+	Rect2(420, 376, 440, 44), # 3: Radio Cassette Playera [R] (Issue #31)
+	Rect2(420, 428, 440, 44), # 4: Volumen Master
+	Rect2(420, 480, 440, 44), # 5: Pantalla Completa (F11)
+	Rect2(420, 532, 440, 44)  # 6: Salir al Escritorio
 ]
 
 var btn_close_album_rect := Rect2(500, 610, 280, 46)
@@ -73,10 +74,12 @@ func _on_button_pressed(idx: int) -> void:
 		2:
 			show_album_modal = true
 		3:
-			GameState.cycle_volume()
+			GameState.cycle_radio_station()
 		4:
-			GameState.toggle_fullscreen()
+			GameState.cycle_volume()
 		5:
+			GameState.toggle_fullscreen()
+		6:
 			GameState.save_game()
 			get_tree().quit()
 
@@ -105,18 +108,19 @@ func _draw() -> void:
 		return
 
 	# 3. Panel Central del Menú Principal
-	draw_rect(Rect2(340, 55, 600, 585), Color(0.06, 0.11, 0.17, 0.94))
-	draw_rect(Rect2(340, 55, 600, 585), Color.GOLD, false, 3.0)
+	draw_rect(Rect2(340, 48, 600, 600), Color(0.06, 0.11, 0.17, 0.94))
+	draw_rect(Rect2(340, 48, 600, 600), Color.GOLD, false, 3.0)
 
-	draw_string(font, Vector2(395, 118), "🏖️ CHIRINGUITO MUST BE PAID", HORIZONTAL_ALIGNMENT_LEFT, -1, 30, Color.GOLD)
-	draw_string(font, Vector2(405, 154), "Incremental Playero de Cangrejos, Helados y Divisas", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.AQUAMARINE)
-	draw_string(font, Vector2(385, 200), "💶 Cartera: %.1f €  |  🐚 Conchas: %d  |  🏅 Postales: %d/%d" % [GameState.currencies["EUR"], GameState.golden_shells, GameState.get_unlocked_achievements_count(), GameState.achievement_catalog.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.WHITE)
+	draw_string(font, Vector2(395, 108), "🏖️ CHIRINGUITO MUST BE PAID", HORIZONTAL_ALIGNMENT_LEFT, -1, 30, Color.GOLD)
+	draw_string(font, Vector2(405, 144), "Incremental Playero de Cangrejos, Helados y Divisas", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.AQUAMARINE)
+	draw_string(font, Vector2(385, 188), "💶 Cartera: %.1f €  |  🐚 Conchas: %d  |  🏅 Postales: %d/%d" % [GameState.currencies["EUR"], GameState.golden_shells, GameState.get_unlocked_achievements_count(), GameState.achievement_catalog.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.WHITE)
 
 	var labels: Array[String] = [
 		"▶️ CONTINUAR VERANEO (Día %d)" % GameState.current_day if GameState.has_saved_progress() else "▶️ EMPEZAR VERANEO (Día 1)",
 		"🌞 NUEVA RUN (Reiniciar al Día 1 conservando 🐚)",
 		"🏅 ÁLBUM DE POSTALES Y RÉCORDS (%d/%d)" % [GameState.get_unlocked_achievements_count(), GameState.achievement_catalog.size()],
-		"🔊 VOLUMEN DE SONIDO: %s" % ("MUTE" if GameState.master_volume_pct == 0 else "%d%%" % GameState.master_volume_pct),
+		"🎵 RADIO CASSETTE [R]: %s" % GameState.get_radio_station_name(),
+		"🔊 VOLUMEN GENERAL: %s" % ("MUTE" if GameState.master_volume_pct == 0 else "%d%%" % GameState.master_volume_pct),
 		"🖥️ MODO DE PANTALLA (F11): %s" % ("PANTALLA COMPLETA" if GameState.is_fullscreen else "VENTANA"),
 		"🚪 GUARDAR Y SALIR AL ESCRITORIO"
 	]
@@ -124,14 +128,14 @@ func _draw() -> void:
 	for i in range(btn_rects.size()):
 		var r: Rect2 = btn_rects[i]
 		var is_hov: bool = (i == hovered_btn)
-		var base_col: Color = Color("#2a9d8f") if i == 0 else (Color("#b56576") if i == 2 else (Color("#e76f51") if i == 5 else Color("#1d3557")))
+		var base_col: Color = Color("#2a9d8f") if i == 0 else (Color("#b56576") if i == 2 else (Color("#3d5a80") if i == 3 else (Color("#e76f51") if i == 6 else Color("#1d3557"))))
 		if is_hov:
 			base_col = base_col.lightened(0.18)
 		draw_rect(r, base_col)
 		draw_rect(r, Color.GOLD if is_hov else Color("#415a77"), false, 2.0)
-		draw_string(font, r.position + Vector2(22, 30), labels[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.WHITE)
+		draw_string(font, r.position + Vector2(22, 28), labels[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.WHITE)
 
-	draw_string(font, Vector2(435, 616), "💡 Pulsa [ESC] en cualquier momento para volver a este menú", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.LIGHT_GRAY)
+	draw_string(font, Vector2(385, 622), "💡 Pulsa [R] para cambiar de emisora de radio o [ESC] para volver al menú", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.LIGHT_GRAY)
 
 func _draw_album_modal(font: Font) -> void:
 	draw_rect(Rect2(190, 45, 900, 630), Color(0.06, 0.11, 0.17, 0.96))
