@@ -1,6 +1,6 @@
 extends Node2D
-## Escena Entre Rondas ("El Paseo Marítimo"):
-## 1. Caseta de Cambio con Mercado Dinámico (ALZA / BAJA) y venta individual por divisa (Issue #18)
+## Escena Entre Rondas ("El Paseo Marítimo") — Edición Cozy Beach:
+## 1. Caseta de Cambio con Mercado Dinámico y Fuente/Lluvia de Monedas 2.5D al vender divisas (Issue #18 & #33)
 ## 2. Árbol de Habilidades Visual (Grafo 2D de Nodos conectados por líneas con Pan/Arrastre y Tooltips - Issue #19)
 ## 3. Tienda Permanente de Prestigio, Álbum de Postales + Estadísticas y Radio Cassette (Issue #25, #27 & #31)
 
@@ -11,6 +11,10 @@ var status_color: Color = Color.GOLD
 
 # 0 = Grafo Visual de Nodos (Issue #19), 1 = Tienda Permanente de Prestigio, 2 = Álbum de Postales y Estadísticas (Issue #27)
 var view_mode: int = 0
+
+# Monedas celebratorias con física 2.5D al vender divisas o pagar cuentas (Issue #33)
+var celebration_coins: Array[Dictionary] = []
+var anim_time: float = 0.0
 
 # Notificación Toast de Postal Desbloqueada (Issue #25)
 var toast_timer: float = 0.0
@@ -88,13 +92,63 @@ func _on_achievement_unlocked(title: String, desc: String) -> void:
 	toast_title = title
 	toast_desc = desc
 	toast_timer = 4.0
+	_spawn_coin_fountain(Vector2(640, 220), 12, true)
 	queue_redraw()
 
+func _spawn_coin_fountain(origin: Vector2, count: int, from_sky: bool = false) -> void:
+	var codes: Array[String] = ["EUR", "USD", "GBP", "PEN"]
+	for i in range(count):
+		var angle: float = randf() * TAU
+		var spd: float = randf_range(60.0, 230.0)
+		var gpos: Vector2 = Vector2(randf_range(120, 1160), randf_range(220, 660)) if from_sky else origin + Vector2(randf_range(-30, 30), randf_range(-20, 20))
+		celebration_coins.append({
+			"pos": gpos,
+			"vel": Vector2(cos(angle), sin(angle) * 0.75) * spd,
+			"z": randf_range(360.0, 620.0) if from_sky else randf_range(18.0, 34.0),
+			"vz": randf_range(-30.0, 30.0) if from_sky else randf_range(240.0, 410.0),
+			"spin": randf() * TAU,
+			"spin_speed": randf_range(10.0, 16.0),
+			"bounces": 0,
+			"ttl": randf_range(2.2, 3.8),
+			"code": "EUR" if not from_sky else codes.pick_random()
+		})
+
 func _process(delta: float) -> void:
+	anim_time += delta
+	var needs_draw: bool = false
+
 	if toast_timer > 0.0:
 		toast_timer = maxf(0.0, toast_timer - delta)
-		if toast_timer == 0.0:
-			queue_redraw()
+		needs_draw = true
+
+	if not celebration_coins.is_empty():
+		needs_draw = true
+		for i in range(celebration_coins.size() - 1, -1, -1):
+			var cc: Dictionary = celebration_coins[i]
+			cc["ttl"] -= delta
+			if cc["ttl"] <= 0.0:
+				celebration_coins.remove_at(i)
+				continue
+			var z: float = float(cc["z"])
+			var vz: float = float(cc["vz"])
+			if z > 0.0 or vz > 0.0:
+				vz -= 920.0 * delta
+				z += vz * delta
+				cc["pos"] += cc["vel"] * delta
+				cc["spin"] += float(cc["spin_speed"]) * delta
+				if z <= 0.0:
+					z = 0.0
+					if vz < -60.0 and int(cc["bounces"]) < 3:
+						vz = -vz * 0.54
+						cc["vel"] *= 0.65
+						cc["bounces"] = int(cc["bounces"]) + 1
+					else:
+						vz = 0.0
+						cc["vel"] = Vector2.ZERO
+			else:
+				cc["spin"] += delta * 3.0
+			cc["z"] = z
+			cc["vz"] = vz
 
 	if view_mode == 0:
 		var mpos: Vector2 = get_viewport().get_mouse_position()
@@ -106,7 +160,10 @@ func _process(delta: float) -> void:
 					break
 		if new_hover != hovered_node_id:
 			hovered_node_id = new_hover
-			queue_redraw()
+			needs_draw = true
+
+	if needs_draw:
+		queue_redraw()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and is_panning and view_mode == 0:
@@ -152,7 +209,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				# Botones individuales de venta por divisa
 				for sbtn in single_exchange_rects:
 					if sbtn["rect"].has_point(mpos):
-						_on_single_exchange_pressed(sbtn["code"])
+						_on_single_exchange_pressed(sbtn["code"], sbtn["rect"].get_center())
 						return
 
 				if view_mode == 1 and btn_wipe_save_rect.has_point(mpos):
@@ -190,10 +247,10 @@ func _unhandled_input(event: InputEvent) -> void:
 					if drag_accum < 8.0:
 						for id in graph_node_Screen_positions.keys():
 							if mpos.distance_to(graph_node_Screen_positions[id]) <= 30.0:
-								_on_upgrade_clicked(id)
+								_on_upgrade_clicked(id, graph_node_Screen_positions[id])
 								return
 
-func _on_single_exchange_pressed(code: String) -> void:
+func _on_single_exchange_pressed(code: String, origin_pos: Vector2) -> void:
 	var gained: float = GameState.exchange_single_currency_to_eur(code)
 	if gained <= 0.0:
 		status_message = "💱 No tienes %s para vender hoy." % code
@@ -201,9 +258,10 @@ func _on_single_exchange_pressed(code: String) -> void:
 	else:
 		status_message = "💱 ¡Vendidos tus %s por +%.1f € a la cotización de hoy (%s)!" % [code, gained, GameState.get_market_trend_text(code)]
 		status_color = Color.GREEN_YELLOW
+		_spawn_coin_fountain(origin_pos, 10, false)
 	queue_redraw()
 
-func _on_upgrade_clicked(id: String) -> void:
+func _on_upgrade_clicked(id: String, node_pos: Vector2) -> void:
 	if not GameState.is_upgrade_unlocked(id):
 		status_message = "🔒 Nodo bloqueado: compra primero al menos 1 nivel del nodo padre conectado."
 		status_color = Color.ORANGE
@@ -213,6 +271,7 @@ func _on_upgrade_clicked(id: String) -> void:
 	if GameState.buy_upgrade(id):
 		status_message = "✨ ¡Nodo mejorado por %.1f €! Nevera: %s" % [cost, GameState.get_fridge_summary()]
 		status_color = Color.LIME_GREEN
+		_spawn_coin_fountain(node_pos, 6, false)
 	else:
 		status_message = "❌ No tienes suficientes Euros (%.1f € requeridos) o ya está al nivel máximo." % cost
 		status_color = Color.SALMON
@@ -223,6 +282,7 @@ func _on_prestige_clicked(id: String) -> void:
 	if GameState.buy_prestige_upgrade(id):
 		status_message = "🐚 ¡Mejora PERMANENTE adquirida y guardada por %d Concha(s) Dorada(s)!" % cost
 		status_color = Color.GOLD
+		_spawn_coin_fountain(Vector2(820, 320), 10, true)
 	else:
 		status_message = "❌ Necesitas %d 🐚 Conchas Doradas (o ya alcanzaste el nivel máximo)." % cost
 		status_color = Color.SALMON
@@ -237,6 +297,8 @@ func _on_exchange_pressed() -> void:
 		var gained: float = GameState.exchange_all_to_eur()
 		status_message = "💱 ¡Cambio total realizado! Has recibido +%.1f € en la Caseta." % gained
 		status_color = Color.GREEN_YELLOW
+		_spawn_coin_fountain(btn_exchange_rect.get_center(), 14, false)
+		_spawn_coin_fountain(Vector2(640, 300), 8, true)
 	queue_redraw()
 
 func _on_pay_bill_pressed() -> void:
@@ -251,6 +313,7 @@ func _on_pay_bill_pressed() -> void:
 		bill_paid_today = true
 		status_message = "✅ ¡Cuenta pagada! +1 🐚 Concha Dorada de prestigio (💾 Progreso guardado)."
 		status_color = Color.LIME_GREEN
+		_spawn_coin_fountain(btn_pay_bill_rect.get_center(), 16, true)
 	else:
 		bankruptcy_state = true
 		var earned_shells: int = GameState.award_bankruptcy_shells()
@@ -283,20 +346,42 @@ func _get_branch_color(branch: int) -> Color:
 		2: return Color("#c77dff") # Helados / Suerte
 		_: return Color("#ffd166") # Turismo / Divisas
 
+func _draw_celebration_coins(font: Font) -> void:
+	for cc in celebration_coins:
+		var gp: Vector2 = cc["pos"]
+		var cz: float = float(cc["z"])
+		var sh_scale: float = clampf(1.0 - (cz / 520.0), 0.3, 1.0)
+		draw_circle(gp + Vector2(0, 4), 11.0 * sh_scale, Color(0, 0, 0, 0.25 * sh_scale))
+		var cpos: Vector2 = gp + Vector2(0, -cz)
+		var spin_w: float = 0.45 + 0.55 * absf(cos(float(cc["spin"])))
+		var col: Color = Color("#ffd166") if cc["code"] == "EUR" else Color("#52b788")
+		draw_circle(cpos, 12.5 * (0.85 + 0.15 * spin_w), col)
+		draw_arc(cpos, 12.5 * (0.85 + 0.15 * spin_w), 0, TAU, 16, Color.WHITE, 1.8)
+		draw_string(font, cpos + Vector2(-10, 4), cc["code"], HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color("#1d2d44"))
+
 func _draw() -> void:
 	var font: Font = ThemeDB.fallback_font
 	upgrade_card_rects.clear()
 	single_exchange_rects.clear()
 	graph_node_Screen_positions.clear()
 
-	# Fondo general del Paseo Marítimo
-	draw_rect(Rect2(0, 0, 1280, 720), Color("#1b263b"))
-	draw_rect(Rect2(0, 0, 1280, 88), Color("#0d1b2a"))
+	# Fondo general del Paseo Marítimo al Atardecer Cozy
+	draw_rect(Rect2(0, 0, 1280, 720), Color("#1d2d44"))
+	draw_rect(Rect2(0, 0, 1280, 92), Color("#0d1b2a"))
+	draw_line(Vector2(0, 92), Vector2(1280, 92), Color("#f4a261"), 3.5)
+
+	# Toldo de rayas del Chiringuito + Guirnalda de bombillas cálidas ("Cozy Lights")
+	for bx in range(0, 1280, 32):
+		var st_col: Color = Color("#e76f51") if (bx / 32) % 2 == 0 else Color("#fff8e7")
+		draw_rect(Rect2(bx, 0, 32, 7), st_col)
+	for lx in range(40, 1260, 80):
+		draw_circle(Vector2(lx, 92), 6.0, Color(1.0, 0.85, 0.4, 0.35))
+		draw_circle(Vector2(lx, 92), 3.2, Color("#ffd166"))
 
 	# Cabecera
-	draw_string(font, Vector2(30, 38), "🌅 FIN DEL DÍA %d — PASEO MARÍTIMO & ÁRBOL VISUAL DE NODOS" % GameState.current_day, HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color.WHITE)
+	draw_string(font, Vector2(30, 38), "🌅 FIN DEL DÍA %d — PASEO MARÍTIMO & CHIRINGUITO COZY" % GameState.current_day, HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color("#fff8e7"))
 	draw_string(font, Vector2(30, 68), status_message, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, status_color)
-	draw_string(font, Vector2(735, 34), "💶 %.1f €  |  🐚 %d Conchas  |  🏅 %d/%d Postales" % [GameState.currencies["EUR"], GameState.golden_shells, GameState.get_unlocked_achievements_count(), GameState.achievement_catalog.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.GOLD)
+	draw_string(font, Vector2(735, 34), "💶 %.1f €  |  🐚 %d Conchas  |  🏅 %d/%d Postales" % [GameState.currencies["EUR"], GameState.golden_shells, GameState.get_unlocked_achievements_count(), GameState.achievement_catalog.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color("#ffd166"))
 
 	# Botón de Radio Cassette en Cabecera (Issue #31)
 	draw_rect(btn_radio_rect, Color("#3d5a80"))
@@ -304,10 +389,10 @@ func _draw() -> void:
 	draw_string(font, btn_radio_rect.position + Vector2(10, 20), "[R] %s" % GameState.get_radio_station_name(), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.WHITE)
 
 	# --- COLUMNA IZQUIERDA: CASETA DE CAMBIO CON MERCADO DINÁMICO ---
-	draw_rect(Rect2(20, 105, 350, 600), Color("#0d1b2a"))
-	draw_rect(Rect2(20, 105, 350, 600), Color("#415a77"), false, 2.0)
+	draw_rect(Rect2(20, 105, 350, 600), Color("#111d2b"))
+	draw_rect(Rect2(20, 105, 350, 600), Color("#f4a261"), false, 2.0)
 
-	draw_string(font, Vector2(30, 134), "💱 BOLSA TURÍSTICA (Cotización Hoy)", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.GOLD)
+	draw_string(font, Vector2(30, 134), "💱 BOLSA TURÍSTICA (Cotización Hoy)", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color("#ffd166"))
 	var y_ex: float = 152.0
 	for code in ["USD", "GBP", "PEN"]:
 		var amt: float = GameState.currencies.get(code, 0.0)
@@ -317,7 +402,7 @@ func _draw() -> void:
 		var trend_str: String = GameState.get_market_trend_text(code)
 		var trend_col: Color = Color.LIME_GREEN if mult >= 1.05 else (Color.SALMON if mult <= 0.95 else Color.LIGHT_GRAY)
 
-		draw_rect(Rect2(28, y_ex, 334, 34), Color(1, 1, 1, 0.05))
+		draw_rect(Rect2(28, y_ex, 334, 34), Color(1, 1, 1, 0.06))
 		draw_string(font, Vector2(34, y_ex + 22), "%s: %.1f" % [code, amt], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.WHITE)
 		draw_string(font, Vector2(120, y_ex + 22), "%s (%.2f€)" % [trend_str, rate], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, trend_col)
 
@@ -327,11 +412,13 @@ func _draw() -> void:
 		draw_string(font, srect.position + Vector2(8, 19), "Vender (+%.1f€)" % eur_val, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE if amt > 0.0 else Color.GRAY)
 		y_ex += 39.0
 
-	# Ticket del Chiringuito compacto a la izquierda
+	# Ticket del Chiringuito estilo papel cálido a la izquierda
 	var bill: Dictionary = GameState.get_current_bill()
-	draw_rect(Rect2(30, 275, 330, 228), Color(0.95, 0.93, 0.85))
-	draw_string(font, Vector2(45, 305), "🧾 CHIRINGUITO — TICKET #%d" % (GameState.current_bill_index + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.BLACK)
-	draw_string(font, Vector2(45, 336), bill["title"], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("#333333"))
+	draw_rect(Rect2(34, 279, 330, 228), Color(0, 0, 0, 0.25))
+	draw_rect(Rect2(30, 275, 330, 228), Color("#fdf6e2"))
+	draw_rect(Rect2(30, 275, 330, 228), Color("#d4a373"), false, 2.0)
+	draw_string(font, Vector2(45, 305), "🧾 CHIRINGUITO — TICKET #%d" % (GameState.current_bill_index + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color("#1d2d44"))
+	draw_string(font, Vector2(45, 336), bill["title"], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("#3d405b"))
 	draw_string(font, Vector2(45, 376), "IMPORTE: %.0f €" % bill["amount"], HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color("#d62828"))
 	var due_str: String = "¡VENCE HOY MISMO!" if GameState.is_bill_due_today() else "Vence Día %d (Hoy: Día %d)" % [((GameState.current_bill_index + 1) * GameState.days_per_bill), GameState.current_day]
 	draw_string(font, Vector2(45, 416), due_str, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color("#d62828") if GameState.is_bill_due_today() else Color("#1d3557"))
@@ -340,6 +427,7 @@ func _draw() -> void:
 	# Botones Izquierda
 	var pending_eur: float = GameState.get_pending_foreign_eur_value()
 	draw_rect(btn_exchange_rect, Color("#2a9d8f") if pending_eur > 0.0 else Color("#415a77"))
+	draw_rect(btn_exchange_rect, Color("#ffd166") if pending_eur > 0.0 else Color("#415a77"), false, 1.5)
 	draw_string(font, btn_exchange_rect.position + Vector2(20, 31), "💱 VENDER TODAS (+%.1f €)" % pending_eur, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.WHITE)
 
 	if GameState.is_bill_due_today() and not bill_paid_today and not bankruptcy_state:
@@ -354,15 +442,15 @@ func _draw() -> void:
 	draw_string(font, btn_next_day_rect.position + Vector2(35, 33), next_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color.BLACK if (bill_paid_today or bankruptcy_state) else Color.WHITE)
 
 	# --- PANEL DERECHO: GRAFO VISUAL DE NODOS (0) + PRESTIGIO (1) + POSTALES Y ESTADÍSTICAS (2) ---
-	draw_rect(graph_panel_rect, Color("#09131c"))
-	var border_panel_col: Color = Color("#2ec4b6") if view_mode == 0 else (Color.GOLD if view_mode == 1 else Color("#f4a261"))
+	draw_rect(graph_panel_rect, Color("#0d1824"))
+	var border_panel_col: Color = Color("#2ec4b6") if view_mode == 0 else (Color("#ffd166") if view_mode == 1 else Color("#f4a261"))
 	draw_rect(graph_panel_rect, border_panel_col, false, 2.0)
 
 	# 3 Pestañas superiores
 	draw_rect(tab_graph_rect, Color("#2ec4b6") if view_mode == 0 else Color("#1b263b"))
 	draw_string(font, tab_graph_rect.position + Vector2(12, 26), "🕸️ ÁRBOL DE NODOS (2D)", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.BLACK if view_mode == 0 else Color.WHITE)
 
-	draw_rect(tab_prestige_rect, Color.GOLD if view_mode == 1 else Color("#1b263b"))
+	draw_rect(tab_prestige_rect, Color("#ffd166") if view_mode == 1 else Color("#1b263b"))
 	draw_string(font, tab_prestige_rect.position + Vector2(12, 26), "🐚 PRESTIGIO (%d)" % GameState.golden_shells, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.BLACK if view_mode == 1 else Color.WHITE)
 
 	draw_rect(tab_postcards_rect, Color("#f4a261") if view_mode == 2 else Color("#1b263b"))
@@ -370,10 +458,12 @@ func _draw() -> void:
 
 	if view_mode == 1:
 		_draw_prestige_shop(font)
+		_draw_celebration_coins(font)
 		_draw_toast_banner(font)
 		return
 	elif view_mode == 2:
 		_draw_postcards_and_stats(font)
+		_draw_celebration_coins(font)
 		_draw_toast_banner(font)
 		return
 
@@ -432,12 +522,12 @@ func _draw() -> void:
 
 		draw_circle(npos + Vector2(0, 4), node_r, Color(0, 0, 0, 0.4))
 		draw_circle(npos, node_r, fill_col)
-		var border_col: Color = Color.WHITE if is_hovered else (Color.GOLD if can_buy else (b_col if unlocked else Color("#33415c")))
+		var border_col: Color = Color.WHITE if is_hovered else (Color("#ffd166") if can_buy else (b_col if unlocked else Color("#33415c")))
 		draw_arc(npos, node_r, 0, TAU, 28, border_col, 3.2 if (can_buy or is_hovered) else 2.0)
 
 		var icon_str: String = item["title"].split(" ")[0]
 		draw_string(font, npos + Vector2(-10, -2), icon_str, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.WHITE if unlocked else Color.DARK_GRAY)
-		draw_string(font, npos + Vector2(-15, 16), "%d/%d" % [lvl, max_lvl], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.GOLD if lvl > 0 else Color.LIGHT_GRAY)
+		draw_string(font, npos + Vector2(-15, 16), "%d/%d" % [lvl, max_lvl], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#ffd166") if lvl > 0 else Color.LIGHT_GRAY)
 
 	# 4. Barra Inferior de Inspector / Tooltip dentro del Grafo
 	var tip_rect := Rect2(400, 615, 845, 78)
@@ -450,7 +540,7 @@ func _draw() -> void:
 		var hmax: int = hitem["max_lvl"]
 		var hunlocked: bool = GameState.is_upgrade_unlocked(hovered_node_id)
 		var hcost: float = GameState.get_upgrade_cost(hovered_node_id)
-		draw_string(font, tip_rect.position + Vector2(16, 26), "%s   [Nivel %d / %d]" % [hitem["title"], hlvl, hmax], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.GOLD)
+		draw_string(font, tip_rect.position + Vector2(16, 26), "%s   [Nivel %d / %d]" % [hitem["title"], hlvl, hmax], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color("#ffd166"))
 		draw_string(font, tip_rect.position + Vector2(16, 54), hitem["desc"], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.WHITE)
 		var hstatus: String = "✅ NIVEL MÁXIMO" if hlvl >= hmax else ("🔒 Requiere nodo anterior" if not hunlocked else "🖱️ Clic para mejorar: %.1f €" % hcost)
 		draw_string(font, tip_rect.position + Vector2(580, 42), hstatus, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.LIME_GREEN if hunlocked else Color.SALMON)
@@ -458,6 +548,7 @@ func _draw() -> void:
 		draw_string(font, tip_rect.position + Vector2(18, 32), "💡 Pasa el ratón sobre cualquier nodo del árbol para ver sus detalles y haz clic izquierdo para comprarlo.", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.LIGHT_GRAY)
 		draw_string(font, tip_rect.position + Vector2(18, 58), "🎨 Colores de Rama:  🔴 Herramientas/Críticos   |   🟢 Playa/Tractor/Auto   |   🟣 Helados/Suerte   |   🟡 Turismo/Divisas", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.AQUAMARINE)
 
+	_draw_celebration_coins(font)
 	_draw_toast_banner(font)
 
 func _draw_toast_banner(font: Font) -> void:
@@ -469,7 +560,7 @@ func _draw_toast_banner(font: Font) -> void:
 		draw_string(font, t_rect.position + Vector2(16, 50), toast_desc, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.WHITE)
 
 func _draw_prestige_shop(font: Font) -> void:
-	draw_string(font, Vector2(410, 190), "🐚 TIENDA DE VERANEO PERMANENTE (Guardado automático en user://savegame.json):", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.GOLD)
+	draw_string(font, Vector2(410, 190), "🐚 TIENDA DE VERANEO PERMANENTE (Guardado automático en user://savegame.json):", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color("#ffd166"))
 	var card_y: float = 210.0
 	for pitem in GameState.prestige_catalog:
 		var pid: String = pitem["id"]
@@ -483,24 +574,23 @@ func _draw_prestige_shop(font: Font) -> void:
 
 		var pbg: Color = Color("#2b9348") if plvl >= pmax else (Color("#3d2c8d") if pcan_buy else Color("#1d3557"))
 		draw_rect(prect, pbg)
-		draw_rect(prect, Color.GOLD if pcan_buy else Color("#415a77"), false, 2.0)
+		draw_rect(prect, Color("#ffd166") if pcan_buy else Color("#415a77"), false, 2.0)
 
 		draw_string(font, prect.position + Vector2(18, 30), "%s   [Nivel %d / %d]" % [pitem["title"], plvl, pmax], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.WHITE)
 		draw_string(font, prect.position + Vector2(18, 60), pitem["desc"], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.LIGHT_GRAY)
 
 		var pprice: String = "✅ MÁXIMO" if plvl >= pmax else "Comprar: %d 🐚" % pcost
-		draw_string(font, prect.position + Vector2(650, 48), pprice, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.GOLD if pcan_buy else Color.SALMON)
+		draw_string(font, prect.position + Vector2(650, 48), pprice, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color("#ffd166") if pcan_buy else Color.SALMON)
 		card_y += 98.0
 
 	draw_rect(btn_wipe_save_rect, Color("#6a040f"))
 	draw_string(font, btn_wipe_save_rect.position + Vector2(18, 28), "🗑️ Borrar Partida Guardada", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.WHITE)
 
 func _draw_postcards_and_stats(font: Font) -> void:
-	# 1. Bloque de Estadísticas Históricas Globales
 	var stats_rect := Rect2(405, 168, 835, 92)
 	draw_rect(stats_rect, Color("#14213d"))
 	draw_rect(stats_rect, Color("#f4a261"), false, 2.0)
-	draw_string(font, stats_rect.position + Vector2(16, 26), "📊 RÉCORDS Y ESTADÍSTICAS GLOBALES DEL VERANEANTE", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.GOLD)
+	draw_string(font, stats_rect.position + Vector2(16, 26), "📊 RÉCORDS Y ESTADÍSTICAS GLOBALES DEL VERANEANTE", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color("#ffd166"))
 
 	var st: Dictionary = GameState.lifetime_stats
 	var line1: String = "🦀 Bichos Atrapados: %d   |   💶 Euros Ganados Totales: %.1f €   |   🧾 Cuentas Pagadas: %d" % [
@@ -512,8 +602,7 @@ func _draw_postcards_and_stats(font: Font) -> void:
 	draw_string(font, stats_rect.position + Vector2(16, 54), line1, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.WHITE)
 	draw_string(font, stats_rect.position + Vector2(16, 78), line2, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.AQUAMARINE)
 
-	# 2. Cuadrícula 2x4 del Álbum de Postales de Veraneo
-	draw_string(font, Vector2(405, 286), "🏅 ÁLBUM DE POSTALES DE VERANEO (Cada postal desbloqueada otorga +1 🐚 Concha Dorada):", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color.GOLD)
+	draw_string(font, Vector2(405, 286), "🏅 ÁLBUM DE POSTALES DE VERANEO (Cada postal desbloqueada otorga +1 🐚 Concha Dorada):", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color("#ffd166"))
 
 	for i in range(GameState.achievement_catalog.size()):
 		var ach: Dictionary = GameState.achievement_catalog[i]
@@ -526,9 +615,9 @@ func _draw_postcards_and_stats(font: Font) -> void:
 		var crect := Rect2(cx, cy, 410, 84)
 
 		draw_rect(crect, Color("#1d4e5f") if is_unlk else Color("#121c29"))
-		draw_rect(crect, Color.GOLD if is_unlk else Color("#33415c"), false, 2.2 if is_unlk else 1.5)
+		draw_rect(crect, Color("#ffd166") if is_unlk else Color("#33415c"), false, 2.2 if is_unlk else 1.5)
 
-		draw_string(font, crect.position + Vector2(14, 28), ach["title"], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.GOLD if is_unlk else Color.LIGHT_GRAY)
+		draw_string(font, crect.position + Vector2(14, 28), ach["title"], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color("#ffd166") if is_unlk else Color.LIGHT_GRAY)
 		var badge: String = "✅ +1 🐚" if is_unlk else "🔒 Pendiente"
 		draw_string(font, crect.position + Vector2(312, 28), badge, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.LIME_GREEN if is_unlk else Color.DARK_GRAY)
 		draw_string(font, crect.position + Vector2(14, 58), ach["desc"], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE if is_unlk else Color.GRAY)
