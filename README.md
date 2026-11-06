@@ -92,7 +92,10 @@ Estás de vacaciones en la playa con la familia y la cuenta del **Chiringuito** 
 
 ---
 
-## 6. Milestone 4 — Ambientación Musical y Pulido Extra
+## 6. Milestone 4 — Ambientación Musical y Rediseño Cozy Beach (✅ Completado)
 
 ### Fase 14: Radio Cassette Playera (Música de Verano Procedural Chiptune) (✅ Completado)
 - [x] **Issue #31:** Sintetizador musical multipista con 3 emisoras veraniegas en bucle (*📻 Chiringuito FM*, *🌴 Costa Tropical*, *🌊 Olas Chill* + *🔇 Radio OFF*) controlable con la tecla `[R]` o desde los menús.
+
+### Fase 15: Rediseño Visual Cozy Beach, Físicas 2.5D de Monedas y Lluvia de Monedas (✅ Completado)
+- [x] **Issue #33:** Físicas 2.5D en las monedas (altura `z`, gravedad, giro 3D, rebotes en la arena y vuelo parabólico al HUD al recogerlas), eventos de **Lluvia de Monedas** desde el cielo y decoración **Cozy Beach** (sombrillas de rayas con brisa, toallas, estrellas de mar, castillo de arena, toldo de chiringuito y guirnaldas de luces).
